@@ -1,0 +1,195 @@
+#!/bin/bash
+
+# Make sure we capture failures from pipe commands
+set -o pipefail
+
+# aws-vault exec nubis-jd-admin -- aws ec2 describe-route-tables --query 'RouteTables[].Routes[?GatewayId==`local`].DestinationCidrBlock'
+
+# curl -k -s -S "https://registry.hub.docker.com/v1/repositories/nubisproject/nubis-builder/tags" | jq --raw-output '.[]["name"]' | sort --field-separator=. --numeric-sort --reverse | grep -m 1 "^v"
+
+help () {
+    echo -en "$0\n\n"
+    echo -en "Usage: $0 [options] command\n\n"
+    echo -en "Commands:\n"
+    echo -en "  build [cmd]    Run the nubis-buider docker container to build a new AMI\n"
+    echo -en "  deploy [cmd]   Run the nubis-deploy docker container to operate on a deployment\n"
+    echo -en "Options:\n"
+    echo -en "  --account    -a      Name of the account to operate in\n"
+    echo -en "  --local      -l      Use locally built docker image for this operation\n"
+    echo -en "  --help       -h      Print this help information and exit\n"
+#     echo -en "  --info       -v      Turn on info, should be set before other arguments\n"
+#     echo -en "  --verbose    -vv     Turn on verbosity, should be set before other arguments\n"
+#     echo -en "  --debug      -vvv    Turn on debugging, should be set before other arguments\n"
+    echo -en "  --setx       -x      Turn on bash setx, should be set before other arguments\n"
+    echo -en "                         Basically set -x\n\n"
+}
+
+nubis-deploy() {
+    if [ "${USE_LOCAL_DOCKER:-0}" == 'true' ]; then
+        DOCKER_IMAGE="nubis-deploy"
+    else
+        NUBIS_DEPLOY_VERSION=$(curl -k -s -S \
+            "https://registry.hub.docker.com/v1/repositories/nubisproject/nubis-deploy/tags" | \
+            jq --raw-output '.[]["name"]' | \
+            sort --field-separator=. --numeric-sort --reverse | \
+            grep -m 1 "^v")
+        DOCKER_IMAGE="nubisproject/nubis-deploy:${NUBIS_DEPLOY_VERSION}"
+    fi
+
+    if [ "${1}" == 'apply' ]; then
+        echo "Setup sshuttle?"
+        PS3="Enter a number: "
+        select ANSWER in 'Yes' 'No' 'Quit'; do
+            case $ANSWER in
+                Yes )
+                    if [ ! -f 'nubis/terraform/terraform.tfvars' ]; then
+                        echo -e "\033[1;31mERROR: 'terraform.tfvars' file not found\033[0m"
+                        exit 1
+                    else
+                        ARENA=$(toml2json < "${TERRAFORM_PATH}/terraform.tfvars" | jq -r .arena )
+                        # Make sure we got an arena
+                        if [ "${ARENA}" == 'null' ]; then
+                            echo -e "\033[0;32mWARNING: 'arena' not set ${TERRAFORM_PATH}/terraform.tfvars\033[0m"
+                            echo -e "\033[0;32mWARNING: Defaulting 'arena' to 'core'\033[0m"
+                            echo -e "\033[0;32mWARNING: 'arena' will be required in a future release\033[0m"
+                            ARENA='core'; export ARENA
+                        else
+                            export ARENA
+                        fi
+                        DEPLOYMENT_REGION=$(toml2json < "${TERRAFORM_PATH}/terraform.tfvars" | jq -r .region )
+                        # Make sure we got a deployment region
+                        if [ "${DEPLOYMENT_REGION}" == 'null' ]; then
+                            echo -e "\033[1;31mERROR: 'region' not set ${TERRAFORM_PATH}/terraform.tfvars\033[0m"
+                            exit 1
+                        else
+                            export DEPLOYMENT_REGION
+                        fi
+                    fi
+                    NUBIS_ARENA_IPS=$(curl -s "http://state.nubis.${NUBIS_ACCOUNT}.nubis.allizom.org/aws/${DEPLOYMENT_REGION}/${ARENA}.tfstate" | jq -r ' .modules[] | select(.path == ["root"]) | .outputs.private_network_cidr')
+                    if [ "${NUBIS_ARENA_IPS:-NULL}" == 'NULL' ]; then
+                        echo "ACCOUNT IPs not found. Skipping sshuttle"
+                        break
+                    else
+                         sshuttle --deaamon -v --dns -r "${USER}@jumphost.${ARENA}.${DEPLOYMENT_REGION}.${NUBIS_ACCOUNT}.nubis.allizom.org" "${NUBIS_ARENA_IPS}"
+                        break
+                    fi
+                ;;
+                No )
+                    break
+                ;;
+                Quit )
+                    echo "Okay. Se ya."
+                    exit 0
+                ;;
+            esac
+        done
+    fi
+
+    aws-vault exec "${NUBIS_ACCOUNT}-admin" -- \
+            docker run \
+                -u "$UID:$(id -g)" \
+                --interactive --tty \
+                --env-file ~/.docker_env \
+                -v "$PWD:/nubis/data" \
+                "${DOCKER_IMAGE}" "$@"
+}
+
+nubis-build() {
+    if [ "${USE_LOCAL_DOCKER:-0}" == 'true' ]; then
+        DOCKER_IMAGE="nubis-builder"
+    else
+        NUBIS_BUILD_VERSION=$(curl -k -s -S \
+            "https://registry.hub.docker.com/v1/repositories/nubisproject/nubis-builder/tags" | \
+            jq --raw-output '.[]["name"]' | \
+            sort --field-separator=. --numeric-sort --reverse | \
+            grep -m 1 "^v")
+        DOCKER_IMAGE="nubisproject/nubis-builder:${NUBIS_BUILD_VERSION}"
+    fi
+
+    aws-vault exec "${NUBIS_ACCOUNT}-admin" -- \
+            docker run \
+                -u "$UID:$(id -g)" \
+                --interactive --tty \
+                --env-file ~/.docker_env \
+                -v "$PWD:/nubis/data" \
+                "${DOCKER_IMAGE}" "$@"
+}
+
+setup-account() {
+    while [ "${DONE}" != 1 ]; do
+        if [ "${NUBIS_ACCOUNT:-NULL}" == 'NULL' ]; then
+            read -r -p "Account name: " NUBIS_ACCOUNT
+        fi
+
+        echo "Run in account: ${NUBIS_ACCOUNT}"
+        PS3="Enter a number: "
+        select ANSWER in 'Yes' 'No' 'Quit'; do
+            case $ANSWER in
+                Yes )
+                    DONE=1
+                    break
+                ;;
+                No )
+                    echo "You selected: ${ANSWER}"
+                    read -r -p "Account name: " NUBIS_ACCOUNT
+                    break
+                ;;
+                Quit )
+                    echo "Okay. Se ya."
+                    exit 0
+                ;;
+            esac
+        done
+
+    done
+
+    echo "Okay, running in account: ${NUBIS_ACCOUNT}"
+    export NUBIS_ACCOUNT
+}
+
+while [ "$1" != "" ]; do
+    case $1 in
+        -h | --help )
+            help
+            exit 0
+        ;;
+        -l | --local )
+            USE_LOCAL_DOCKER='true'
+            shift
+        ;;
+        --setx )
+            set -x
+        ;;
+        -a | --account | --account-name )
+            NUBIS_ACCOUNT="$2"
+            shift
+        ;;
+        build )
+            shift
+            if [ "${NUBIS_ACCOUNT:-NULL}" == 'NULL' ]; then
+                setup-account
+            fi
+            nubis-build "$@"
+            GOT_COMMAND=1
+        ;;
+        deploy )
+            shift
+            if [ "${NUBIS_ACCOUNT:-NULL}" == 'NULL' ]; then
+                setup-account
+            fi
+            nubis-deploy "$@"
+            GOT_COMMAND=1
+        ;;
+        * )
+            help
+            exit 1
+        ;;
+    esac
+    shift
+done
+
+# If we did not get a valid command print the help message
+if [ "${GOT_COMMAND:-0}" == 0 ]; then
+    help
+    exit 1
+fi
