@@ -3,10 +3,6 @@
 # Make sure we capture failures from pipe commands
 set -o pipefail
 
-# aws-vault exec nubis-jd-admin -- aws ec2 describe-route-tables --query 'RouteTables[].Routes[?GatewayId==`local`].DestinationCidrBlock'
-
-# curl -k -s -S "https://registry.hub.docker.com/v1/repositories/nubisproject/nubis-builder/tags" | jq --raw-output '.[]["name"]' | sort --field-separator=. --numeric-sort --reverse | grep -m 1 "^v"
-
 help () {
     echo -en "$0\n\n"
     echo -en "Usage: $0 [options] command\n\n"
@@ -17,9 +13,6 @@ help () {
     echo -en "  --account    -a      Name of the account to operate in\n"
     echo -en "  --local      -l      Use locally built docker image for this operation\n"
     echo -en "  --help       -h      Print this help information and exit\n"
-#     echo -en "  --info       -v      Turn on info, should be set before other arguments\n"
-#     echo -en "  --verbose    -vv     Turn on verbosity, should be set before other arguments\n"
-#     echo -en "  --debug      -vvv    Turn on debugging, should be set before other arguments\n"
     echo -en "  --setx       -x      Turn on bash setx, should be set before other arguments\n"
     echo -en "                         Basically set -x\n\n"
 }
@@ -42,7 +35,8 @@ nubis-deploy() {
         select ANSWER in 'Yes' 'No' 'Quit'; do
             case $ANSWER in
                 Yes )
-                    if [ ! -f 'nubis/terraform/terraform.tfvars' ]; then
+                    TERRAFORM_PATH='nubis/terraform'
+                    if [ ! -f "${TERRAFORM_PATH}/terraform.tfvars" ]; then
                         echo -e "\033[1;31mERROR: 'terraform.tfvars' file not found\033[0m"
                         exit 1
                     else
@@ -70,7 +64,7 @@ nubis-deploy() {
                         echo "ACCOUNT IPs not found. Skipping sshuttle"
                         break
                     else
-                         sshuttle --deaamon -v --dns -r "${USER}@jumphost.${ARENA}.${DEPLOYMENT_REGION}.${NUBIS_ACCOUNT}.nubis.allizom.org" "${NUBIS_ARENA_IPS}"
+                         sshuttle --daemon -v --dns -r "${USER}@jumphost.${ARENA}.${DEPLOYMENT_REGION}.${NUBIS_ACCOUNT}.nubis.allizom.org" "${NUBIS_ARENA_IPS}"
                         break
                     fi
                 ;;
@@ -87,10 +81,10 @@ nubis-deploy() {
 
     aws-vault exec "${NUBIS_ACCOUNT}-admin" -- \
             docker run \
-                -u "$UID:$(id -g)" \
                 --interactive --tty \
                 --env-file ~/.docker_env \
-                -v "$PWD:/nubis/data" \
+                --mount type=bind,source="$(pwd)",target=/nubis/data \
+                --mount source=nubis-deploy,target=/nubis/work \
                 "${DOCKER_IMAGE}" "$@"
 }
 
@@ -149,15 +143,14 @@ setup-account() {
 
 while [ "$1" != "" ]; do
     case $1 in
-        -h | --help )
+        -h | --help | help )
             help
             exit 0
         ;;
         -l | --local )
             USE_LOCAL_DOCKER='true'
-            shift
         ;;
-        --setx )
+        --debug | --setx )
             set -x
         ;;
         -a | --account | --account-name )
@@ -170,6 +163,7 @@ while [ "$1" != "" ]; do
                 setup-account
             fi
             nubis-build "$@"
+            shift "${#@}"
             GOT_COMMAND=1
         ;;
         deploy )
@@ -178,6 +172,7 @@ while [ "$1" != "" ]; do
                 setup-account
             fi
             nubis-deploy "$@"
+            shift "${#@}"
             GOT_COMMAND=1
         ;;
         * )
