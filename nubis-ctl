@@ -11,6 +11,7 @@ help () {
     echo -en "  deploy [cmd]   Run the nubis-deploy docker container to operate on a deployment\n"
     echo -en "Options:\n"
     echo -en "  --account    -a      Name of the account to operate in\n"
+    echo -en "  --bootstrap  -b      Use the bootsrtap user instead of the admin role\n"
     echo -en "  --local      -l      Use locally built docker image for this operation\n"
     echo -en "  --help       -h      Print this help information and exit\n"
     echo -en "  --setx       -x      Turn on bash setx, should be set before other arguments\n"
@@ -79,10 +80,18 @@ nubis-deploy() {
         done
     fi
 
-    aws-vault exec "${NUBIS_ACCOUNT}-admin" -- \
+    if [ "${USE_BOOTSTRAP_USER:-0}" != '0' ]; then
+        declare -a AWS_VAULT_EXEC=( 'aws-vault' 'exec' '-n' "${NUBIS_ACCOUNT}-bootstrap" '--' )
+    else
+        declare -a AWS_VAULT_EXEC=( 'aws-vault' 'exec' '--assume-role-ttl=60m' "${NUBIS_ACCOUNT}-admin" '--' )
+    fi
+
+    "${AWS_VAULT_EXEC[@]}" \
             docker run \
+                $([[ "${1}" == 'account' ]] && echo "-u $UID:$(id -g)") \
                 --interactive --tty \
                 --env-file ~/.docker_env \
+                --env NUBIS_ACCOUNT="${NUBIS_ACCOUNT}" \
                 --mount type=bind,source="$(pwd)",target=/nubis/data \
                 --mount source=nubis-deploy,target=/nubis/work \
                 "${DOCKER_IMAGE}" "$@"
@@ -105,7 +114,7 @@ nubis-build() {
                 -u "$UID:$(id -g)" \
                 --interactive --tty \
                 --env-file ~/.docker_env \
-                -v "$PWD:/nubis/data" \
+                --mount type=bind,source="$(pwd)",target=/nubis/data \
                 "${DOCKER_IMAGE}" "$@"
 }
 
@@ -156,6 +165,9 @@ while [ "$1" != "" ]; do
         -a | --account | --account-name )
             NUBIS_ACCOUNT="$2"
             shift
+        ;;
+        -b | --bootstrap )
+            USE_BOOTSTRAP_USER='true'
         ;;
         build )
             shift
