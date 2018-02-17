@@ -3,8 +3,12 @@
 # Make sure we capture failures from pipe commands
 set -o pipefail
 
-help () {
-    echo -en "$0\n\n"
+RELEASE_VERSION='v0.1.0'
+NUBIS_TOML2JSON_VERSION='v0.2.0'
+NUBIS_JQ_VERSION='v0.1.0'
+DOCKER_ENV_FILE=~/.docker_env
+
+show-help () {
     echo -en "Usage: $0 [options] command\n\n"
     echo -en "Commands:\n"
     echo -en "  build [cmd]    Run the nubis-buider docker container to build a new AMI\n"
@@ -18,20 +22,330 @@ help () {
     echo -en "                         Basically set -x\n\n"
 }
 
+dependencies-check () {
+    if ! hash aws-vault 2>/dev/null; then
+        echo -e "\033[1;31mERROR: aws-vault needs to to be installed and on your path.\033[0m"
+        echo -e "\033[0;32mSee https://github.com/99designs/aws-vault\033[0m"
+    fi
+    if ! hash docker 2>/dev/null; then
+        echo -e "\033[1;31mERROR: docker needs to to be installed and on your path.\033[0m"
+        echo -e "\033[0;32mSee https://store.docker.com/search?offering=community&type=edition\033[0m"
+    fi
+    if ! hash sshuttle 2>/dev/null; then
+        echo -e "\033[0;32mWARNING: sshuttle not found. Some functionality will be disabled.\033[0m"
+        echo -e "\033[0;32mYou should be able to install it with your package manager\033[0m"
+    fi
+    if ! hash curl 2>/dev/null; then
+        echo -e "\033[1;31mERROR: curl needs to to be installed and on your path.\033[0m"
+        echo -e "\033[0;32mYou should be able to install it with your package manager\033[0m"
+    fi
+}
+
+version-check () {
+    LATEST_RELEASE="$(curl --silent --request GET \
+        "https://api.github.com/repos/nubisproject/nubis-ctl/releases/latest" \
+        | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.tag_name // empty')"
+    if [ ! -z "${LATEST_RELEASE}" ]; then
+        if [ "${LATEST_RELEASE}" != "${RELEASE_VERSION}" ]; then
+            echo -e "\033[0;32mWARNING: There is a newer version of nubis-ctl available.\033[0m"
+            echo -e "\033[0;32mYou should update to version '${LATEST_RELEASE}' to ensure full functionality.\033[0m"
+        fi
+    fi
+}
+
+docker-env () {
+    if [ ! -f "${DOCKER_ENV_FILE}" ]; then
+        echo -e "Did not find '${DOCKER_ENV_FILE}' Which should contain:\n"
+        echo -e "\033[0;32mAWS_ACCESS_KEY_ID\033[0m"
+        echo -e "\033[0;32mAWS_SECRET_ACCESS_KEY\033[0m"
+        echo -e "\033[0;32mAWS_SESSION_TOKEN\033[0m"
+        echo -e "\033[0;32mAWS_SECURITY_TOKEN\n\033[0m"
+        echo "Would you like me to create it for you?"
+        PS3="Enter a number: "
+        select ANSWER in 'Yes' 'No' 'Quit'; do
+            case $ANSWER in
+                Yes )
+                    echo -e "AWS_ACCESS_KEY_ID\nAWS_SECRET_ACCESS_KEY\nAWS_SESSION_TOKEN\nAWS_SECURITY_TOKEN" > "${DOCKER_ENV_FILE}"
+                    break
+                ;;
+                No )
+                    echo "Okay, but any docker run commands requiring aws-vault will fail."
+                    break
+                ;;
+                Quit )
+                    echo "Okay. Se ya."
+                    exit 0
+                ;;
+                * )
+                    echo "Please enter a number. For example: enter '1' for the first option in the list."
+                ;;
+            esac
+        done
+    fi
+}
+
+dependencies-version-setup () {
+    if [ "${USE_LOCAL_DOCKER:-0}" == 'true' ]; then
+        TOML2JSON_DOCKER_IMAGE="nubis-toml2json"
+        JQ_DOCKER_IMAGE="nubis-jq"
+    else
+        TOML2JSON_DOCKER_IMAGE="nubisproject/nubis-toml2json:${NUBIS_TOML2JSON_VERSION}"
+        JQ_DOCKER_IMAGE="nubisproject/nubis-jq:${NUBIS_JQ_VERSION}"
+    fi
+}
+
+run-checks () {
+    dependencies-check
+    docker-env
+    dependencies-version-setup
+}
+
+ask-for-input () {
+    local _QUESTION="${1}"
+    local _ANSWER _DONE
+    while [ "${_DONE:-0}" == 0 ]; do
+        echo -en "${_QUESTION} "
+        read -r _ANSWER
+        if [ "${#_ANSWER}" == 0 ]; then
+            echo -e "Sorry, answer cannot be empty. Please try again.\n"
+        else
+            _DONE=1
+        fi
+    done
+    eval "${2}='${_ANSWER}'"
+}
+
+setup-aws-vault () {
+    ask-for-input "Enter your LDAP login (part before @ in your email address):" LDAP_LOGIN
+    ask-for-input "Enter your AWS Access Key ID:" AWS_ACCESS_KEY_ID
+    ask-for-input "Enter your AWS Secret Access Key:" AWS_SECRET_ACCESS_KEY
+
+    echo "Adding '${NUBIS_ACCOUNT}' to aws-vault"
+    export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+    if ! aws-vault add --env "${NUBIS_ACCOUNT}"; then
+        echo "\033[1;31mERROR: ${NUBIS_ACCOUNT} could not be added to aws-vault\033[0m"
+        exit 1
+    fi
+    unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+
+    echo "Creating virtual mfa device"
+    local _VIRTUAL_MFA_ARN
+    _VIRTUAL_MFA_ARN=$(aws-vault exec -n "${NUBIS_ACCOUNT}" -- \
+        aws iam create-virtual-mfa-device \
+        --virtual-mfa-device-name "${LDAP_LOGIN}" \
+        --outfile "${LDAP_LOGIN}.png" \
+        --bootstrap-method QRCodePNG \
+        | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.VirtualMFADevice.SerialNumber // empty')
+    if [ -z "${_VIRTUAL_MFA_ARN}" ]; then
+        echo "\033[1;31mERROR: Virual MFA ARN already exists\033[0m"
+        exit 1
+    fi
+
+    local _ACCOUNT_NUMBER
+    _ACCOUNT_NUMBER=$(echo "${_VIRTUAL_MFA_ARN}" | cut -d ':' -f 5)
+    if [ -z "${_ACCOUNT_NUMBER}" ]; then
+        echo "\033[1;31mERROR: Cannot get account number\033[0m"
+        exit 1
+    fi
+
+    local _AWS_CONFIG_FILE
+    _AWS_CONFIG_FILE=~/.aws/config
+    if [ ! -f "${_AWS_CONFIG_FILE}" ]; then
+        echo "\033[1;31mERROR: ${_AWS_CONFIG_FILE} does not exist\033[0m"
+        echo "You need to create the directory and file by running this command:"
+        echo "mkdir ~/.aws && touch ~/.aws/config"
+        echo "Would you like me to do that for you?"
+        PS3="Enter a number: "
+        select ANSWER in 'Yes' 'No' 'Quit'; do
+            case $ANSWER in
+                Yes )
+                    if [ ! -d ~/.aws ]; then
+                        mkdir ~/.aws || exit 1
+                    fi
+                    touch ~/.aws/config || exit 1
+                    break
+                ;;
+                No )
+                    # If they answer 'No' Lets check to see if they set it up.
+                    if [ ! -f "${_AWS_CONFIG_FILE}" ]; then
+                        echo "\033[1;31mERROR: ${_AWS_CONFIG_FILE} still does not exist\033[0m"
+                        echo "Bye Bye"
+                        exit 1
+                    else
+                        break
+                    fi
+                ;;
+                Quit )
+                    echo "Okay. Se ya."
+                    exit 0
+                ;;
+                * )
+                    echo "Please enter a number. For example: enter '1' for the first option in the list."
+                ;;
+            esac
+        done
+    fi
+
+    echo -e "\nAdding the ${NUBIS_ACCOUNT} account to ${_AWS_CONFIG_FILE}"
+    # If this is not the first entry, add a blank line before the account
+    if [ -s "${_AWS_CONFIG_FILE}" ]; then
+        echo >> "${_AWS_CONFIG_FILE}"
+    fi
+cat >>${_AWS_CONFIG_FILE} << EOH
+[${NUBIS_ACCOUNT}]
+output = json
+region = us-west-2
+[profile ${NUBIS_ACCOUNT}-admin]
+source_profile = ${NUBIS_ACCOUNT}
+role_arn = arn:aws:iam::${_ACCOUNT_NUMBER}:role/nubis/admin/${LDAP_LOGIN}
+mfa_serial = arn:aws:iam::${_ACCOUNT_NUMBER}:mfa/${LDAP_LOGIN}
+[profile ${NUBIS_ACCOUNT}-ro]
+source_profile = ${NUBIS_ACCOUNT}
+role_arn = arn:aws:iam::${_ACCOUNT_NUMBER}:role/nubis/readonly
+mfa_serial = arn:aws:iam::${_ACCOUNT_NUMBER}:mfa/${LDAP_LOGIN}
+EOH
+
+    echo -e "\nUsing an OTP/MFA app scan the QR code in the ${LDAP_LOGIN}.png file."
+    if [ "$(uname)" == "Linux" ] && hash display 2>/dev/null; then
+        echo -e "\nWould you like me to display '${LDAP_LOGIN}.png'?"
+        PS3="Enter a number: "
+        select CHOICE in 'Yes' 'No'; do
+            case $CHOICE in
+                Yes )
+                    echo "Okay. Scan the QR code with your OTP/MFA APP."
+                    echo "When you are finished, close the image box to continue here.... I'll wait."
+                    display "${LDAP_LOGIN}.png"
+                    echo -e "\nWould you like me to remove '${LDAP_LOGIN}.png'?"
+                    PS3="Enter a number: "
+                    select CHOICE in 'Yes' 'No'; do
+                        case $CHOICE in
+                            Yes )
+                                echo "Okay. Removing '${LDAP_LOGIN}.png'"
+                                rm "${LDAP_LOGIN}.png"
+                                break
+                            ;;
+                            No )
+                                echo "Okay"
+                                break
+                            ;;
+                            * )
+                                echo "Please enter a number. For example: enter '1' for the first option in the list."
+                            ;;
+                        esac
+                    done
+                    break
+                ;;
+                No )
+                    echo "Okay"
+                    break
+                ;;
+                * )
+                    echo "Please enter a number. For example: enter '1' for the first option in the list."
+                ;;
+            esac
+        done
+        echo -e "\nWe are ready for the last step."
+        echo "Select 'Yes' to continue on to set up the virtual MFA device in the account."
+    else
+        echo "Once you have added this account to your OTP/MFA app, select 'Yes' to continue."
+    fi
+
+    PS3="Enter a number: "
+    select ANSWER in 'Yes' 'No' 'Quit'; do
+        case $ANSWER in
+            Yes )
+                echo "Enabling MFA Device"
+                ask-for-input "Enter an auth code from your OTP/MFA app:" AUTH_CODE_ONE
+                ask-for-input "Enter a \033[7mdifferent\033[0m auth code from your OTP/MFA app:" AUTH_CODE_TWO
+
+                if ! aws-vault exec -n "${NUBIS_ACCOUNT}" -- aws iam enable-mfa-device --user-name "${LDAP_LOGIN}" --serial-number "${_VIRTUAL_MFA_ARN}" --authentication-code-1 "${AUTH_CODE_ONE}" --authentication-code-2 "${AUTH_CODE_TWO}"; then
+                    echo -e "\033[1;31mERROR: Failed to enable MFA device.\033[0m"
+                    exit 1
+                fi
+                break
+            ;;
+            No )
+                echo "Okay, you will need to enable the MFA device manually by running this command:"
+                echo -e "aws-vault exec -n ${NUBIS_ACCOUNT} -- aws iam enable-mfa-device --user-name ${LDAP_LOGIN} --serial-number ${_VIRTUAL_MFA_ARN} --authentication-code-1 <auth code 1> --authentication-code-2 <auth code 2>"
+                echo -e "\nCheck your OTP app for <auth code 1> and <auth code 2>. They must be different and consecutive.\n"
+                exit 0
+            ;;
+            Quit )
+                echo "Okay. Se ya."
+                exit 0
+            ;;
+            * )
+                echo "Please enter a number. For example: enter '1' for the first option in the list."
+            ;;
+        esac
+    done
+
+    echo "Would you like to test your new setup by listing some S3 buckets?"
+    select ANSWER in 'Yes' 'No' 'Quit'; do
+        case $ANSWER in
+            Yes )
+                echo "Cool. Listing S3 buckets..."
+                if [ "${USE_LOCAL_DOCKER:-0}" == 'true' ]; then
+                    DOCKER_IMAGE="nubis-deploy"
+                else
+                    NUBIS_DEPLOY_VERSION=$(curl -k -s -S \
+                        "https://registry.hub.docker.com/v1/repositories/nubisproject/nubis-deploy/tags" \
+                        | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.[]["name"] // empty' \
+                        | sort --field-separator=. --numeric-sort --reverse \
+                        | grep -m 1 "^v")
+                    if [ -z "${NUBIS_DEPLOY_VERSION}" ]; then
+                        echo -e "\033[1;31mERROR: Unable to find nubis-deploy version\033[0m"
+                        break
+                    fi
+                    DOCKER_IMAGE="nubisproject/nubis-deploy:${NUBIS_DEPLOY_VERSION}"
+                fi
+                aws-vault exec "${NUBIS_ACCOUNT}-ro" -- \
+                        docker run \
+                            --interactive --tty \
+                            --env-file "${DOCKER_ENV_FILE}" \
+                            --entrypoint=/bin/bash \
+                            "${DOCKER_IMAGE}" -c 'aws s3 ls'
+                break
+            ;;
+            No )
+                # https://github.com/koalaman/shellcheck/wiki/SC2028
+                # shellcheck disable=SC2028
+                echo "Okay. You can test by running 'aws-vault exec ${NUBIS_ACCOUNT} -- aws s3 ls' if you like.\n"
+                break
+            ;;
+            Quit )
+                echo "Okay. Se ya."
+                exit 0
+            ;;
+            * )
+                echo "Please enter a number. For example: enter '1' for the first option in the list."
+            ;;
+        esac
+    done
+
+    echo -e "\nCongratulations, aws-vault is all set up for '${LDAP_LOGIN}' in the '${NUBIS_ACCOUNT}' account\n"
+    unset NUBIS_ACCOUNT LDAP_LOGIN AUTH_CODE_ONE AUTH_CODE_TWO
+}
+
 nubis-deploy() {
     if [ "${USE_LOCAL_DOCKER:-0}" == 'true' ]; then
         DOCKER_IMAGE="nubis-deploy"
     else
         NUBIS_DEPLOY_VERSION=$(curl -k -s -S \
-            "https://registry.hub.docker.com/v1/repositories/nubisproject/nubis-deploy/tags" | \
-            jq --raw-output '.[]["name"]' | \
-            sort --field-separator=. --numeric-sort --reverse | \
-            grep -m 1 "^v")
+            "https://registry.hub.docker.com/v1/repositories/nubisproject/nubis-deploy/tags" \
+            | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.[]["name"] // empty' \
+            | sort --field-separator=. --numeric-sort --reverse \
+            | grep -m 1 "^v")
+        if [ -z "${NUBIS_DEPLOY_VERSION}" ]; then
+            echo -e "\033[1;31mERROR: Unable to find nubis-deploy version\033[0m"
+            exit 1
+        fi
         DOCKER_IMAGE="nubisproject/nubis-deploy:${NUBIS_DEPLOY_VERSION}"
     fi
 
-    if [ "${1}" == 'apply' ]; then
-        echo "Setup sshuttle?"
+    if [ "${1}" == 'apply' ] && hash sshuttle 2>/dev/null; then
+        echo "Would you like me to set up sshuttle?"
+        echo "This is necessary if you are using Terraform to insert values into Consul."
         PS3="Enter a number: "
         select ANSWER in 'Yes' 'No' 'Quit'; do
             case $ANSWER in
@@ -41,27 +355,32 @@ nubis-deploy() {
                         echo -e "\033[1;31mERROR: 'terraform.tfvars' file not found\033[0m"
                         exit 1
                     else
-                        ARENA=$(toml2json < "${TERRAFORM_PATH}/terraform.tfvars" | jq -r .arena )
-                        # Make sure we got an arena
-                        if [ "${ARENA}" == 'null' ]; then
-                            echo -e "\033[0;32mWARNING: 'arena' not set ${TERRAFORM_PATH}/terraform.tfvars\033[0m"
+                        ARENA=$(docker run -i "${TOML2JSON_DOCKER_IMAGE}" \
+                            < ${TERRAFORM_PATH}/terraform.tfvars \
+                            | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.arena // empty')
+                        if [ -z "${ARENA}" ]; then
+                            echo -e "\033[0;32mWARNING: 'arena' not set in ${TERRAFORM_PATH}/terraform.tfvars\033[0m"
                             echo -e "\033[0;32mWARNING: Defaulting 'arena' to 'core'\033[0m"
                             echo -e "\033[0;32mWARNING: 'arena' will be required in a future release\033[0m"
                             ARENA='core'; export ARENA
                         else
                             export ARENA
                         fi
-                        DEPLOYMENT_REGION=$(toml2json < "${TERRAFORM_PATH}/terraform.tfvars" | jq -r .region )
-                        # Make sure we got a deployment region
-                        if [ "${DEPLOYMENT_REGION}" == 'null' ]; then
+                        DEPLOYMENT_REGION=$(docker run -i "${TOML2JSON_DOCKER_IMAGE}" \
+                            < ${TERRAFORM_PATH}/terraform.tfvars \
+                            | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.region // empty')
+                        if [ -z "${DEPLOYMENT_REGION}" ]; then
                             echo -e "\033[1;31mERROR: 'region' not set ${TERRAFORM_PATH}/terraform.tfvars\033[0m"
                             exit 1
                         else
                             export DEPLOYMENT_REGION
                         fi
                     fi
-                    NUBIS_ARENA_IPS=$(curl -s "http://state.nubis.${NUBIS_ACCOUNT}.nubis.allizom.org/aws/${DEPLOYMENT_REGION}/${ARENA}.tfstate" | jq -r ' .modules[] | select(.path == ["root"]) | .outputs.private_network_cidr')
-                    if [ "${NUBIS_ARENA_IPS:-NULL}" == 'NULL' ]; then
+                    NUBIS_ARENA_IPS=$(curl -s \
+                        "http://state.nubis.${NUBIS_ACCOUNT}.nubis.allizom.org/aws/${DEPLOYMENT_REGION}/${ARENA}.tfstate" \
+                        | docker run -i "${JQ_DOCKER_IMAGE}" \
+                        jq --raw-output ' .modules[] | select(.path == ["root"]) | .outputs.private_network_cidr //empty')
+                    if [ -z "${NUBIS_ARENA_IPS}" ]; then
                         echo "ACCOUNT IPs not found. Skipping sshuttle"
                         break
                     else
@@ -76,8 +395,14 @@ nubis-deploy() {
                     echo "Okay. Se ya."
                     exit 0
                 ;;
+                * )
+                    echo "Please enter a number. For example: enter '1' for the first option in the list."
+                ;;
             esac
         done
+    elif [ "${1}" == 'apply' ]; then
+        echo -e "\033[0;32mWARNING: sshuttle not found. Disabling sshuttle functionality.\033[0m"
+        echo -e "\033[0;32msshuttle is necessary if you are using Terraform to insert values into Consul.\033[0m"
     fi
 
     if [ "${USE_BOOTSTRAP_USER:-0}" != '0' ]; then
@@ -88,9 +413,9 @@ nubis-deploy() {
 
     "${AWS_VAULT_EXEC[@]}" \
             docker run \
-                $([[ "${1}" == 'account' ]] && echo "-u $UID:$(id -g)") \
+                "$([[ "${1}" == 'account' ]] && echo -n "-u$(id -u):$(id -g)")" \
                 --interactive --tty \
-                --env-file ~/.docker_env \
+                --env-file "${DOCKER_ENV_FILE}" \
                 --env NUBIS_ACCOUNT="${NUBIS_ACCOUNT}" \
                 --mount type=bind,source="$(pwd)",target=/nubis/data \
                 --mount source=nubis-deploy,target=/nubis/work \
@@ -102,58 +427,69 @@ nubis-build() {
         DOCKER_IMAGE="nubis-builder"
     else
         NUBIS_BUILD_VERSION=$(curl -k -s -S \
-            "https://registry.hub.docker.com/v1/repositories/nubisproject/nubis-builder/tags" | \
-            jq --raw-output '.[]["name"]' | \
-            sort --field-separator=. --numeric-sort --reverse | \
-            grep -m 1 "^v")
+            "https://registry.hub.docker.com/v1/repositories/nubisproject/nubis-builder/tags" \
+            | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.[]["name"] // empty' \
+            | sort --field-separator=. --numeric-sort --reverse \
+            | grep -m 1 "^v")
+        if [ -z "${NUBIS_BUILD_VERSION}" ]; then
+            echo -e "\033[1;31mERROR: Unable to find nubis-builder version\033[0m"
+            exit 1
+        fi
         DOCKER_IMAGE="nubisproject/nubis-builder:${NUBIS_BUILD_VERSION}"
     fi
 
     aws-vault exec "${NUBIS_ACCOUNT}-admin" -- \
             docker run \
-                -u "$UID:$(id -g)" \
+                -u "$(id -u):$(id -g)" \
                 --interactive --tty \
-                --env-file ~/.docker_env \
+                --env-file "${DOCKER_ENV_FILE}" \
                 --mount type=bind,source="$(pwd)",target=/nubis/data \
                 "${DOCKER_IMAGE}" "$@"
 }
 
 setup-account() {
-    while [ "${DONE}" != 1 ]; do
-        if [ "${NUBIS_ACCOUNT:-NULL}" == 'NULL' ]; then
-            read -r -p "Account name: " NUBIS_ACCOUNT
-        fi
-
-        echo "Run in account: ${NUBIS_ACCOUNT}"
+    if [ -z "${NUBIS_ACCOUNT}" ]; then
+        ask-for-input "Enter the AWS Account name:" NUBIS_ACCOUNT
+    else
+        echo "I have account '${NUBIS_ACCOUNT}'. Is this correct?"
         PS3="Enter a number: "
         select ANSWER in 'Yes' 'No' 'Quit'; do
             case $ANSWER in
                 Yes )
-                    DONE=1
                     break
                 ;;
                 No )
-                    echo "You selected: ${ANSWER}"
-                    read -r -p "Account name: " NUBIS_ACCOUNT
-                    break
+                    ask-for-input "Enter the AWS Account name:" NUBIS_ACCOUNT
+                    echo "I have account '${NUBIS_ACCOUNT}'. Is this correct?"
                 ;;
                 Quit )
                     echo "Okay. Se ya."
                     exit 0
                 ;;
+                * )
+                    echo "Please enter a number. For example: enter '1' for the first option in the list."
+                ;;
             esac
         done
-
-    done
-
+    fi
     echo "Okay, running in account: ${NUBIS_ACCOUNT}"
     export NUBIS_ACCOUNT
 }
 
+# This may need to be expanded to be more intelligent
+if [ "$(uname)" == "Linux" ]; then
+    # Dont clobber users existing configuration
+    if [ -z "${AWS_VAULT_BACKEND}" ]; then
+        export AWS_VAULT_BACKEND='kwallet'
+    fi
+fi
+
 while [ "$1" != "" ]; do
     case $1 in
         -h | --help | help )
-            help
+            show-help
+            dependencies-version-setup
+            version-check
             exit 0
         ;;
         -l | --local )
@@ -169,26 +505,34 @@ while [ "$1" != "" ]; do
         -b | --bootstrap )
             USE_BOOTSTRAP_USER='true'
         ;;
+        add-account )
+            run-checks
+            setup-account
+            setup-aws-vault
+            version-check
+            GOT_COMMAND=1
+        ;;
         build )
             shift
-            if [ "${NUBIS_ACCOUNT:-NULL}" == 'NULL' ]; then
-                setup-account
-            fi
+            run-checks
+            setup-account
             nubis-build "$@"
             shift "${#@}"
+            version-check
             GOT_COMMAND=1
         ;;
         deploy )
             shift
-            if [ "${NUBIS_ACCOUNT:-NULL}" == 'NULL' ]; then
-                setup-account
-            fi
+            run-checks
+            setup-account
             nubis-deploy "$@"
             shift "${#@}"
+            version-check
             GOT_COMMAND=1
         ;;
         * )
-            help
+            echo -e "\n\033[1;31mERROR: Unknown command or option: '${1}'\033[0m\n"
+            show-help
             exit 1
         ;;
     esac
@@ -197,6 +541,6 @@ done
 
 # If we did not get a valid command print the help message
 if [ "${GOT_COMMAND:-0}" == 0 ]; then
-    help
+    show-help
     exit 1
 fi
