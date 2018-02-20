@@ -450,7 +450,6 @@ nubis-build() {
 setup-account() {
     if [ -z "${NUBIS_ACCOUNT}" ]; then
         ask-for-input "Enter the AWS Account name:" NUBIS_ACCOUNT
-    else
         echo "I have account '${NUBIS_ACCOUNT}'. Is this correct?"
         PS3="Enter a number: "
         select ANSWER in 'Yes' 'No' 'Quit'; do
