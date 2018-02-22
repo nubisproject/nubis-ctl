@@ -411,9 +411,15 @@ nubis-deploy() {
         declare -a AWS_VAULT_EXEC=( 'aws-vault' 'exec' '--assume-role-ttl=60m' "${NUBIS_ACCOUNT}-admin" '--' )
     fi
 
+    if [ "${1}" == 'account' ]; then
+        DOCKER_USER="$(id -u):$(id -g)"
+    else
+        DOCKER_USER='0:0'
+    fi
+
     "${AWS_VAULT_EXEC[@]}" \
             docker run \
-                "$([[ "${1}" == 'account' ]] && echo -n "-u$(id -u):$(id -g)")" \
+                -u"${DOCKER_USER}" \
                 --interactive --tty \
                 --env-file "${DOCKER_ENV_FILE}" \
                 --env NUBIS_ACCOUNT="${NUBIS_ACCOUNT}" \
