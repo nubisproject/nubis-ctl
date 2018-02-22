@@ -17,7 +17,7 @@ Feel free to use another method if you desire.
 
 First, navigate an appropriate location on your file-system. Next, clone the
 repository and check out the most current release (tag). Hint: Check out the
-version badge at the top.
+release version badge at the top.
 
 ```bash
 
