@@ -1,0 +1,459 @@
+#!/bin/bash
+
+# Make sure we capture failures from pipe commands
+set -o pipefail
+# Required to trim characters
+shopt -s extglob
+
+# Working directory where Nubis repositories are checked out
+NUBIS_DIRECTORY="/home/${USER}/projects/mozilla/projects/nubis"
+
+# The GitHub organization hosting the Nubis repositories
+GITHUB_ORGINIZATION='nubisproject'
+
+# The GitHub user forking the Nubis repositories
+GITHUB_USER='tinnightcap'
+
+# List of repositories that should be explicitly excluded form the release
+# It is not necessary to list anything here, only repositories explicitly listed in release or build arrays will be released
+# This is intended as a convenience to temporarily exclude repositories from a release, generally for testing
+EXCLUDE_REPOSITORIES='nubis-storage|nubis-vpc'
+
+# This function sets up logging, debugging and terminal output on std error
+# Level 0 is always logged
+# Level 1 through 3 are set on the command line
+# The level is escalating, so everything in level 1 is shown in level 2 and 3 etc...
+# Duplicate output on command line also here
+#
+# Usage:
+# Level 0 'log_term 0 "message" [echo options]'
+# Level 1 'log_term 1 "message" [echo options]'
+# Level 2 'log_term 2 "message" [echo options]'
+# Level 3 'log_term 3 "message" [echo options]'
+LOGGER=/usr/bin/logger
+if [ ! -x $LOGGER ]; then
+    echo "ERROR: 'logger' binary not found - Aborting"
+    echo "ERROR: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+    exit 2
+fi
+log_term () {
+    if [ "${VERBOSE_INTERNAL:-0}" -ge 0 ] && [ "${1}" == 0 ]; then
+        $LOGGER -p local7.warning -t nubis-release "$2"
+        if [ "${VERBOSE_SILENT:-0}" != 1 ]; then
+            echo "${3}" "${2}" 1>&2
+        fi
+    fi
+    if [ "${VERBOSE_INTERNAL:-0}" -gt 0 ] && [ "${1}" == 1 ]; then
+        $LOGGER -p local7.warning -t nubis-release "$2"
+        if [ "${VERBOSE_TERMINAL:-0}" == 1 ] && [ "${VERBOSE_SILENT:-0}" != 1 ]; then
+            echo "${3}" "${2}" 1>&2
+        fi
+    fi
+    if [ "${VERBOSE_INTERNAL:-0}" -gt 1 ] && [ "${1}" == 2 ]; then
+        $LOGGER -p local7.warning -t nubis-release "$2"
+        if [ "${VERBOSE_TERMINAL:-0}" == 1 ] && [ "${VERBOSE_SILENT:-0}" != 1 ]; then
+            echo "${3}" "${2}" 1>&2
+        fi
+    fi
+    if [ "${VERBOSE_INTERNAL:-0}" -gt 2 ] && [ "${1}" == 3 ]; then
+        $LOGGER -p local7.warning -t nubis-release "$2"
+        if [ "${VERBOSE_TERMINAL:-0}" == 1 ] && [ "${VERBOSE_SILENT:-0}" != 1 ]; then
+            echo "${3}" "${2}" 1>&2
+        fi
+    fi
+}
+
+# This function will curl for the GitHub URL passed as ${1}
+# Outputs what curl gets returned
+get_data () {
+    local _GITHUB_URL=${1}
+    local _INTERNAL_DATA
+    if [ "${CHANGELOG_GITHUB_TOKEN:-NULL}" == 'NULL' ];then
+        log_term 1 "WARNING: 'CHANGELOG_GITHUB_TOKEN' unset. Data may be incomplete."
+        log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+        _INTERNAL_DATA=$(curl -s "${_GITHUB_URL}")
+        log_term 2 "Get date from: \"${_GITHUB_URL}\""
+        log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+    else
+        _INTERNAL_DATA=$(curl -s -H "Authorization: token ${CHANGELOG_GITHUB_TOKEN}" "${_GITHUB_URL}")
+        log_term 2 "Get data from: \"${_GITHUB_URL}\""
+        log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+    fi
+    echo "${_INTERNAL_DATA}"
+
+    # Clean up
+    unset _GITHUB_URL _INTERNAL_DATA
+}
+
+# Part of GitHub pagination logic. See the 'collect_data ()' function below.
+#
+# This function gathers headers and pases out the 'Link" header
+# GITHUB_URL must be passed as ${1}
+# Sets ${LINK} from 'Link' header. (Others are not currently used)
+get_headers () {
+    local _GITHUB_URL=${1}
+    while IFS=':' read -r KEY VALUE; do
+        # Trim whitespace off the front and back of $VALUE
+        VALUE=${VALUE##+([[:space:]])}; VALUE=${VALUE%%+([[:space:]])}
+
+        case "${KEY}" in
+            Link) LINK="${VALUE}"
+                ;;
+#             Content-Type) CONTENT_TYPE="$VALUE"
+#                 ;;
+#             HTTP*) read -r PROTOCOL STATUS MESSAGE <<< "$KEY{$VALUE:+:$VALUE}"
+#                 ;;
+        esac
+    done < <(if [ "${CHANGELOG_GITHUB_TOKEN:-NULL}" == 'NULL' ];then curl -sI "${_GITHUB_URL}"; else curl -sI -H "Authorization: token ${CHANGELOG_GITHUB_TOKEN}" "${_GITHUB_URL}"; fi)
+
+    # Clean up
+    unset _GITHUB_URL
+}
+
+# Part of GitHub pagination logic. See the 'collect_data ()' function below.
+#
+# Gets ${LINK} from 'get_headers ()' and echos each segment in turn
+get_link_header_segments () {
+    local _GITHUB_URL=${1}
+    get_headers  "${_GITHUB_URL}"
+    # If github does not return a 'Link' header, return
+    if [ "${#LINK}" == 0 ]; then
+        return
+    fi
+    while [ "${COUNT:-0}" -lt 4 ]; do
+        let COUNT=${COUNT}+1
+        LINK_SEGMENT=$(echo "${LINK}" | cut -d ',' -f "${COUNT}")
+        if [ "${#LINK_SEGMENT}" -gt 0 ]; then
+            echo "${LINK_SEGMENT}"
+        fi
+    done
+
+    # Clean up
+    unset _GITHUB_URL
+}
+
+# Part of GitHub pagination logic. See the 'collect_data ()' function below.
+#
+# Gets 'Link' header segments from 'get_link_header_segments ()'
+# Sets: ${FIRST_URL} ${PREV_URL} ${NEXT_URL} ${LAST_URL}
+get_pagination_urls () {
+    local _GITHUB_URL=${1}
+    while IFS=';' read -r URL REL; do
+        # Trim whitespace off the front and back of ${REL}
+        REL=${REL##+([[:space:]])}; REL=${REL%%+([[:space:]])}
+        # Trim the "rel=" off the front of ${REL}
+        REL=$(echo "${REL}" | cut -d '=' -f 2)
+        # Trim quotes off the front and back of ${REL}
+        REL=${REL##+([\"])}; REL=${REL%%+([\"])}
+        # Trim whitespace off the front and back of ${URL}
+        URL=${URL##+([[:space:]])}; URL=${URL%%+([[:space:]])}
+        # Trim less than and greater than off the front and back of ${URL}
+        URL=${URL##+([<])}; URL=${URL%%+([>])}
+
+        # Populate the *_URL variables
+        case "${REL}" in
+#             first) FIRST_URL="$URL"
+#                 ;;
+#             prev) PREV_URL="$URL"
+#                 ;;
+            next) NEXT_URL="$URL"
+                ;;
+            last) LAST_URL="$URL"
+                ;;
+        esac
+    done < <(get_link_header_segments "${_GITHUB_URL}")
+
+    # Clean up
+    unset _GITHUB_URL
+}
+
+# This is a wrapper function which collects data from GitHub with pagination logic
+#
+# This uses the 'get_pagination_urls ()' function to set pagination URLs
+#+ which uses the 'get_link_header_segments ()' function to parse the 'Link' header
+#+ which uses the get_headers () function to gather the 'Link' header
+#
+# This function then calls the 'get_data ()' function to collect the actual data from each page
+#
+collect_data () {
+    local _GITHUB_URL=${1}
+    local _INTERNAL_DATA
+    # Paginate through grabbing data as we go
+    while [ "${DONE:-0}" -ne 1 ]; do
+
+        log_term 1 "Collecting data from: ${_GITHUB_URL}"
+        log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+        _INTERNAL_DATA="${_INTERNAL_DATA} $(get_data "${_GITHUB_URL}")"
+        get_pagination_urls "${_GITHUB_URL}"
+        # If we do not get a 'next' url, break
+        if [ ${#NEXT_URL} == 0 ]; then
+            break
+        fi
+        if [ "${NEXT_URL}" != "${LAST_URL}" ]; then
+            _GITHUB_URL=${NEXT_URL}
+            log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+        else
+            _GITHUB_URL=${NEXT_URL}
+            log_term 1 "Collecting data from: ${_GITHUB_URL}"
+            log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+            _INTERNAL_DATA="${_INTERNAL_DATA} $(get_data "${_GITHUB_URL}")"
+            let DONE=1
+        fi
+    done
+    echo "${_INTERNAL_DATA}"
+
+    # Clean up
+    unset _GITHUB_URL _INTERNAL_DATA
+}
+
+# This function gathers the list of repositories belonging to the GitHub orginization.
+# This function should be called only once for any given run
+# Sets: ${REPOSITORY_INCLUDE_ARRAY[@]} ${REPOSITORY_EXCLUDE_ARRAY[@]}
+# Returns: Nothing
+declare -a REPOSITORY_INCLUDE_ARRAY REPOSITORY_EXCLUDE_ARRAY
+get_repositories () {
+    if [ "${GITHUB_ORGINIZATION:-NULL}" == 'NULL' ]; then
+        log_term 0 "GitHub orginization not defined. Please edit your variables file."
+        log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+        exit 1
+    fi
+
+    # Set up GitHub API URL
+    local _GITHUB_URL="https://api.github.com/orgs/${GITHUB_ORGINIZATION}/repos"
+    log_term 1 "Setting _GITHUB_URL to: \"${_GITHUB_URL}\""
+    log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+
+    # Collect the JSON list of repositories
+    local _REPOSITORY_LIST; _REPOSITORY_LIST=$(collect_data "${_GITHUB_URL}")
+    log_term 2 "Collecting _REPOSITORY_LIST"
+    log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+
+    # Parse out only the name and sort
+    local _PARSE_REPOSITORY_LIST; _PARSE_REPOSITORY_LIST=$(echo "${_REPOSITORY_LIST}" | jq -r '.[].name' | sort)
+    log_term 2 "Parsing and sorting _REPOSITORY_LIST"
+    log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+
+    # Format the list into an array
+    for REPO in ${_PARSE_REPOSITORY_LIST}; do
+        REPOSITORY_LIST_ARRAY=( ${REPOSITORY_LIST_ARRAY[*]} ${REPO} )
+        log_term 3 "REPOSITORY_LIST_ARRAY=${REPOSITORY_LIST_ARRAY[*]}"
+    done
+    log_term 1 "Found ${#REPOSITORY_LIST_ARRAY[*]} repositories: ${REPOSITORY_LIST_ARRAY[*]}"
+    log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+
+    # Set up REPOSITORY_INCLUDE_ARRAY REPOSITORY_EXCLUDE_ARRAY
+    for REPOSITORY in ${REPOSITORY_LIST_ARRAY[*]}; do
+        if [[ ! "${REPOSITORY}" =~ (${EXCLUDE_REPOSITORIES}) ]]; then
+            log_term 2 "Adding \"${REPOSITORY}\" to REPOSITORY_INCLUDE_ARRAY."
+            log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+            REPOSITORY_INCLUDE_ARRAY=( ${REPOSITORY_INCLUDE_ARRAY[@]} ${REPOSITORY} )
+        else
+            log_term 2 "Adding \"${REPOSITORY}\" to REPOSITORY_EXCLUDE_ARRAY."
+            log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+            REPOSITORY_EXCLUDE_ARRAY=( ${REPOSITORY_EXCLUDE_ARRAY[@]} ${REPOSITORY} )
+        fi
+    done
+    log_term 1 "Including ${#REPOSITORY_INCLUDE_ARRAY[*]} repositories: ${REPOSITORY_INCLUDE_ARRAY[*]}"
+    log_term 1 "Excluding ${#REPOSITORY_EXCLUDE_ARRAY[*]} repositories: ${REPOSITORY_EXCLUDE_ARRAY[*]}"
+    log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+}
+
+update-nubis() {
+    STORE_DIR=${PWD}
+    cd "${NUBIS_DIRECTORY}" || exit 1
+    for REPOSITORY in "${REPOSITORY_INCLUDE_ARRAY[@]}"; do
+
+        log_term 0 "Updating: '${REPOSITORY}'"
+        log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+
+
+        if [ ! -d "${NUBIS_DIRECTORY}/${REPOSITORY}" ]; then
+            log_term 2 "Local copy of '${REPOSITORY}' not found. Forking and cloning..."
+            log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+            cd "${NUBIS_DIRECTORY}" || exit 1
+            hub fork "git@github.com:${GITHUB_ORGINIZATION}/${REPOSITORY}.git"
+            git clone "git@github.com:${GITHUB_ORGINIZATION}/${REPOSITORY}.git"
+        fi
+
+        log_term 2 "Executing: cd '${NUBIS_DIRECTORY}/${REPOSITORY}'"
+        log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+        cd "${NUBIS_DIRECTORY}/${REPOSITORY}" || exit 1
+
+        # Make sure we have a remote 'origin' pointing to ${GITHUB_ORGINIZATION}
+        if [ "$(git remote get-url origin > /dev/null 2>&1; echo $?)" != 0 ]; then
+            log_term 2 "Executing: git remote add origin 'git@github.com:${GITHUB_ORGINIZATION}/${REPOSITORY}.git'"
+            log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+            git remote add origin "git@github.com:${GITHUB_ORGINIZATION}/${REPOSITORY}.git"
+        fi
+
+        # Grab the latest code from origin
+        log_term 2 "Executing: git fetch --quiet origin"
+        log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+        git fetch --quiet origin
+
+        # Make sure we have the origin remote set to the ${GITHUB_ORGINIZATION}
+        if [ "$(git remote get-url origin | grep -c "git@github.com:${GITHUB_ORGINIZATION}/${REPOSITORY}.git")" != 1 ]; then
+            log_term 2 "Executing: git remote set-url origin 'git@github.com:${GITHUB_ORGINIZATION}/${REPOSITORY}.git'"
+            log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+            git remote set-url origin "git@github.com:${GITHUB_ORGINIZATION}/${REPOSITORY}.git"
+        fi
+
+        # Make sure we have a ${GITHUB_USER} remote set
+        if ! git remote get-url "${GITHUB_USER}" > /dev/null 2>&1; then
+            log_term 2 "Executing: git remote add '${GITHUB_USER}' 'git@github.com:${GITHUB_USER}/${REPOSITORY}.git'"
+            log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+            git remote add "${GITHUB_USER}" "git@github.com:${GITHUB_USER}/${REPOSITORY}.git"
+        fi
+
+        # Check to see if there is a develop branch on the origin
+        if [ "$(git branch -a | grep -c "remotes/origin/develop")" == 1 ]; then
+            log_term 2 "Executing: SET_HEAD='develop'"
+            log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+            SET_HEAD='develop'
+        else
+            log_term 2 "Executing: SET_HEAD='master'"
+            log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+            SET_HEAD='master'
+        fi
+
+        # Make sure the head is pointing to the ${SET_HEAD} branch for ${GITHUB_ORGINIZATION}
+        if [ "$(git branch -a | grep "remotes/origin/HEAD" | cut -d '>' -f 2 | grep -c "^ origin/${SET_HEAD}")" != 1 ]; then
+            log_term 2 "Executing: git remote set-head origin '${SET_HEAD}'"
+            log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+            git remote set-head origin "${SET_HEAD}"
+        fi
+
+        # Check to see if there is a ${SET_HEAD} branch on ${GITHUB_USER}
+        if [ "$(git branch -a | grep -c "remotes/${GITHUB_USER}/${SET_HEAD}")" != 1 ]; then
+            log_term 2 "Executing: git checkout -b '${SET_HEAD}'"
+            log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+            git checkout -b "${SET_HEAD}"
+            git push --quiet --set-upstream "${GITHUB_USER}" "${SET_HEAD}"
+        fi
+
+        # Make sure the head is pointing to the ${SET_HEAD} branch for ${GITHUB_USER}
+        if [ "$(git branch -a | grep "remotes/${GITHUB_USER}/HEAD" | cut -d '>' -f 2 | grep -c "^ ${GITHUB_USER}/${SET_HEAD}")" != 1 ]; then
+            log_term 2 "Executing: git remote set-head '${GITHUB_USER}' '${SET_HEAD}'"
+            log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+            git remote set-head "${GITHUB_USER}" "${SET_HEAD}"
+        fi
+
+        # Update the ${GITHUB_USER} branch the head of the ${GITHUB_ORGINIZATION} branch
+        if [ "$(git status --porcelain | grep -c "^")" == 0 ]; then
+            if [ "$(git branch | grep -c "^* ${SET_HEAD}")" != 1 ]; then
+                log_term 2 "Executing: git checkout --quiet '${SET_HEAD}'"
+                log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+                git checkout --quiet "${SET_HEAD}"
+                git submodule --quiet update --init --recursive
+            fi
+            if [ "$(git rebase origin/${SET_HEAD} | grep -c "^Current branch ${SET_HEAD} is up to date.")" != 1 ]; then
+                log_term 2 "Executing: git push --quiet"
+                log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+                git push --quiet
+            fi
+        else
+            echo "******** REPOSITORY ${REPOSITORY} has local changes. Not updating. ********"
+        fi
+    done
+
+    cd "${STORE_DIR}" || exit 1
+}
+
+
+update-travis() {
+    STORE_DIR=${PWD}
+    cd "${NUBIS_DIRECTORY}" || exit 1
+
+#     declare -a TRAVIS_REPOS
+    TRAVIS_REPOS=$( find . -maxdepth 2 -name .travis.yml)
+
+    for REPOSITORY in "${TRAVIS_REPOS[@]}"; do
+        echo "${REPOSITORY}"
+    done
+#     log_term 0 "Updating: '${REPOSITORY}'"
+#     log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+
+    cd "${STORE_DIR}" || exit 1
+}
+
+# Grab and setup called options
+while [ "$1" != "" ]; do
+    case $1 in
+        -s | --silent)
+            export VERBOSE_SILENT=1
+            log_term 2 "Terminal output silent set to: ${VERBOSE_SILENT}"
+            log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+        ;;
+        -v | --info )
+            export VERBOSE_INTERNAL=1
+            log_term 2 "Verbosity level set to: ${VERBOSE_INTERNAL}"
+            export VERBOSE_TERMINAL=1
+            log_term 2 "Duplicate log to terminal set to: ${VERBOSE_TERMINAL}. Disable with '--silent'"
+            log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+        ;;
+        -vv | --verbose )
+            export VERBOSE_INTERNAL=2
+            log_term 2 "Verbosity level set to: ${VERBOSE_INTERNAL}"
+            export VERBOSE_TERMINAL=1
+            log_term 2 "Duplicate log to terminal set to: ${VERBOSE_TERMINAL}. Disable with '--silent'"
+            log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+        ;;
+        -vvv | --debug )
+            export VERBOSE_INTERNAL=3
+            log_term 2 "Verbosity level set to: ${VERBOSE_INTERNAL}"
+            export VERBOSE_TERMINAL=1
+            log_term 2 "Duplicate log to terminal set to: ${VERBOSE_TERMINAL}. Disable with '--silent'"
+            log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+        ;;
+        -T | --terminal )
+            export VERBOSE_TERMINAL=1
+            log_term 1 "Duplicate log to terminal set to: ${VERBOSE_TERMINAL}"
+            log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+        ;;
+        -x | --setx )
+            log_term 1 "Setting 'set -x'"
+            log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
+            set -x
+            export SET_X=1
+        ;;
+         -h | -H | --help )
+            echo -en "$0\n\n"
+            echo -en "Usage: $0 [options] command [repository]\n\n"
+            echo -en "Commands:\n"
+            echo -en "  update                     Update all repositories\n"
+            echo -en "  update-travis              Updte Travis module\n"
+            echo -en "Options:\n"
+            echo -en "  --help              -h      Print this help information and exit\n"
+            echo -en "  --info              -v      Turn on info, should be set before other arguments\n"
+            echo -en "  --verbose           -vv     Turn on verbosity, should be set before other arguments\n"
+            echo -en "  --debug             -vvv    Turn on debugging, should be set before other arguments\n"
+            echo -en "  --setx              -x      Turn on bash setx, should be set before other arguments\n"
+            echo -en "                                Basically set -x\n\n"
+            exit 0
+        ;;
+        update )
+            get_repositories
+            update-nubis
+            GOT_COMMAND=1
+        ;;
+        update-travis )
+            update-travis
+            GOT_COMMAND=1
+        ;;
+        testing )
+            RELEASE="${2}"
+            source_files
+            RET=$(testing "${RELEASE}")
+            echo "RET: $RET"
+            GOT_COMMAND=1
+        ;;
+    esac
+    shift
+done
+
+# If we did not get a valid command print the help message
+if [ "${GOT_COMMAND:-0}" == 0 ]; then
+    $0 --help
+fi
+
+# fin
