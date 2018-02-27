@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck disable=SC1117
 
 # Make sure we capture failures from pipe commands
 set -o pipefail
@@ -121,7 +122,7 @@ get_link_header_segments () {
         return
     fi
     while [ "${COUNT:-0}" -lt 4 ]; do
-        let COUNT=${COUNT}+1
+        COUNT=$((COUNT + 1))
         LINK_SEGMENT=$(echo "${LINK}" | cut -d ',' -f "${COUNT}")
         if [ "${#LINK_SEGMENT}" -gt 0 ]; then
             echo "${LINK_SEGMENT}"
@@ -197,7 +198,7 @@ collect_data () {
             log_term 1 "Collecting data from: ${_GITHUB_URL}"
             log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
             _INTERNAL_DATA="${_INTERNAL_DATA} $(get_data "${_GITHUB_URL}")"
-            let DONE=1
+            DONE=1
         fi
     done
     echo "${_INTERNAL_DATA}"
@@ -235,7 +236,7 @@ get_repositories () {
 
     # Format the list into an array
     for REPO in ${_PARSE_REPOSITORY_LIST}; do
-        REPOSITORY_LIST_ARRAY=( ${REPOSITORY_LIST_ARRAY[*]} ${REPO} )
+        REPOSITORY_LIST_ARRAY=( "${REPOSITORY_LIST_ARRAY[*]}" "${REPO}" )
         log_term 3 "REPOSITORY_LIST_ARRAY=${REPOSITORY_LIST_ARRAY[*]}"
     done
     log_term 1 "Found ${#REPOSITORY_LIST_ARRAY[*]} repositories: ${REPOSITORY_LIST_ARRAY[*]}"
@@ -246,11 +247,11 @@ get_repositories () {
         if [[ ! "${REPOSITORY}" =~ (${EXCLUDE_REPOSITORIES}) ]]; then
             log_term 2 "Adding \"${REPOSITORY}\" to REPOSITORY_INCLUDE_ARRAY."
             log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
-            REPOSITORY_INCLUDE_ARRAY=( ${REPOSITORY_INCLUDE_ARRAY[@]} ${REPOSITORY} )
+            REPOSITORY_INCLUDE_ARRAY=( "${REPOSITORY_INCLUDE_ARRAY[@]}" "${REPOSITORY}" )
         else
             log_term 2 "Adding \"${REPOSITORY}\" to REPOSITORY_EXCLUDE_ARRAY."
             log_term 3 "File: '${BASH_SOURCE[0]}' Line: '${LINENO}'"
-            REPOSITORY_EXCLUDE_ARRAY=( ${REPOSITORY_EXCLUDE_ARRAY[@]} ${REPOSITORY} )
+            REPOSITORY_EXCLUDE_ARRAY=( "${REPOSITORY_EXCLUDE_ARRAY[@]}" "${REPOSITORY}" )
         fi
     done
     log_term 1 "Including ${#REPOSITORY_INCLUDE_ARRAY[*]} repositories: ${REPOSITORY_INCLUDE_ARRAY[*]}"
