@@ -1,12 +1,24 @@
 # Change Log
 
+## [v0.2.0](https://github.com/nubisproject/nubis-ctl/tree/v0.2.0) (2018-02-27)
+[Full Changelog](https://github.com/nubisproject/nubis-ctl/compare/v0.1.0...v0.2.0)
+
+**Merged pull requests:**
+
+- Add lint checks plus lint fixups [\#14](https://github.com/nubisproject/nubis-ctl/pull/14) ([tinnightcap](https://github.com/tinnightcap))
+- Add lint command [\#13](https://github.com/nubisproject/nubis-ctl/pull/13) ([tinnightcap](https://github.com/tinnightcap))
+- Edit for clarity [\#12](https://github.com/nubisproject/nubis-ctl/pull/12) ([tinnightcap](https://github.com/tinnightcap))
+
 ## [v0.1.0](https://github.com/nubisproject/nubis-ctl/tree/v0.1.0) (2018-02-22)
 **Closed issues:**
 
 - Make sure ~/.docker\_env file exists [\#4](https://github.com/nubisproject/nubis-ctl/issues/4)
+- Tag v0.1.0 release [\#9](https://github.com/nubisproject/nubis-ctl/issues/9)
 
 **Merged pull requests:**
 
+- Update CHANGELOG for v0.1.0 release \[skip ci\] [\#11](https://github.com/nubisproject/nubis-ctl/pull/11) ([nubis-automation](https://github.com/nubis-automation))
+- Update CHANGELOG for v0.1.0 release \[skip ci\] [\#10](https://github.com/nubisproject/nubis-ctl/pull/10) ([nubis-automation](https://github.com/nubis-automation))
 - Update README with more comprehensive explinations [\#8](https://github.com/nubisproject/nubis-ctl/pull/8) ([tinnightcap](https://github.com/tinnightcap))
 - Fix regression to always ask for account name verification [\#7](https://github.com/nubisproject/nubis-ctl/pull/7) ([tinnightcap](https://github.com/tinnightcap))
 - Add account-setup [\#6](https://github.com/nubisproject/nubis-ctl/pull/6) ([tinnightcap](https://github.com/tinnightcap))
