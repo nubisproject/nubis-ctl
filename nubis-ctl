@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck disable=SC1117
 
 # Make sure we capture failures from pipe commands
 set -o pipefail
@@ -176,7 +177,7 @@ setup-aws-vault () {
             | grep -m 1 "^v")
         if [ -z "${NUBIS_DEPLOY_VERSION}" ]; then
             echo -e "\033[1;31mERROR: Unable to find nubis-awscli version\033[0m"
-            break
+            return
         fi
         DOCKER_IMAGE="nubisproject/nubis-awscli:${NUBIS_DEPLOY_VERSION}"
     fi
@@ -187,7 +188,7 @@ setup-aws-vault () {
     _VIRTUAL_MFA_ARN=$(aws-vault exec -n "${NUBIS_ACCOUNT}" -- \
         docker run \
             --env-file "${DOCKER_ENV_FILE}" \
-            "${DOCKER_IMAGE}" ${AWS_COMMAND[@]} \
+            "${DOCKER_IMAGE}" "${AWS_COMMAND[@]}" \
         | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.VirtualMFADevice.SerialNumber // empty')
     if [ -z "${_VIRTUAL_MFA_ARN}" ]; then
         echo "\033[1;31mERROR: Virual MFA ARN already exists\033[0m"
@@ -274,7 +275,7 @@ EOH
                 ask-for-input "Enter a \033[7mdifferent\033[0m auth code from your OTP/MFA app:" AUTH_CODE_TWO
 
                 AWS_COMMAND=( 'iam' 'enable-mfa-device' '--user-name' "${LDAP_LOGIN}" '--serial-number' "${_VIRTUAL_MFA_ARN}" '--authentication-code-1' "${AUTH_CODE_ONE}" '--authentication-code-2' "${AUTH_CODE_TWO}" )
-                if ! aws-vault exec -n "${NUBIS_ACCOUNT}" -- docker run --env-file "${DOCKER_ENV_FILE}" "${DOCKER_IMAGE}" ${AWS_COMMAND[@]}; then
+                if ! aws-vault exec -n "${NUBIS_ACCOUNT}" -- docker run --env-file "${DOCKER_ENV_FILE}" "${DOCKER_IMAGE}" "${AWS_COMMAND[@]}"; then
                     echo -e "\033[1;31mERROR: Failed to enable MFA device.\033[0m"
                     exit 1
                 fi
