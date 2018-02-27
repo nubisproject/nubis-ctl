@@ -1,10 +1,23 @@
 # Change Log
 
 ## [v0.2.0](https://github.com/nubisproject/nubis-ctl/tree/v0.2.0) (2018-02-27)
-[Full Changelog](https://github.com/nubisproject/nubis-ctl/compare/v0.1.0...v0.2.0)
+[Full Changelog](https://github.com/nubisproject/nubis-ctl/compare/v0.2.0...v0.2.0)
 
 **Merged pull requests:**
 
+- Bump version number for release [\#18](https://github.com/nubisproject/nubis-ctl/pull/18) ([tinnightcap](https://github.com/tinnightcap))
+
+## [v0.2.0](https://github.com/nubisproject/nubis-ctl/tree/v0.2.0) (2018-02-27)
+[Full Changelog](https://github.com/nubisproject/nubis-ctl/compare/v0.1.0...v0.2.0)
+
+**Closed issues:**
+
+- Tag v0.2.0 release [\#15](https://github.com/nubisproject/nubis-ctl/issues/15)
+
+**Merged pull requests:**
+
+- Update CHANGELOG for v0.2.0 release \[skip ci\] [\#17](https://github.com/nubisproject/nubis-ctl/pull/17) ([nubis-automation](https://github.com/nubis-automation))
+- Update CHANGELOG for v0.2.0 release \[skip ci\] [\#16](https://github.com/nubisproject/nubis-ctl/pull/16) ([nubis-automation](https://github.com/nubis-automation))
 - Add lint checks plus lint fixups [\#14](https://github.com/nubisproject/nubis-ctl/pull/14) ([tinnightcap](https://github.com/tinnightcap))
 - Add lint command [\#13](https://github.com/nubisproject/nubis-ctl/pull/13) ([tinnightcap](https://github.com/tinnightcap))
 - Edit for clarity [\#12](https://github.com/nubisproject/nubis-ctl/pull/12) ([tinnightcap](https://github.com/tinnightcap))
