@@ -120,34 +120,6 @@ setup-aws-vault () {
     ask-for-input "Enter your AWS Access Key ID:" AWS_ACCESS_KEY_ID
     ask-for-input "Enter your AWS Secret Access Key:" AWS_SECRET_ACCESS_KEY
 
-    echo "Adding '${NUBIS_ACCOUNT}' to aws-vault"
-    export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
-    if ! aws-vault add --env "${NUBIS_ACCOUNT}"; then
-        echo "\033[1;31mERROR: ${NUBIS_ACCOUNT} could not be added to aws-vault\033[0m"
-        exit 1
-    fi
-    unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
-
-    echo "Creating virtual mfa device"
-    local _VIRTUAL_MFA_ARN
-    _VIRTUAL_MFA_ARN=$(aws-vault exec -n "${NUBIS_ACCOUNT}" -- \
-        aws iam create-virtual-mfa-device \
-        --virtual-mfa-device-name "${LDAP_LOGIN}" \
-        --outfile "${LDAP_LOGIN}.png" \
-        --bootstrap-method QRCodePNG \
-        | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.VirtualMFADevice.SerialNumber // empty')
-    if [ -z "${_VIRTUAL_MFA_ARN}" ]; then
-        echo "\033[1;31mERROR: Virual MFA ARN already exists\033[0m"
-        exit 1
-    fi
-
-    local _ACCOUNT_NUMBER
-    _ACCOUNT_NUMBER=$(echo "${_VIRTUAL_MFA_ARN}" | cut -d ':' -f 5)
-    if [ -z "${_ACCOUNT_NUMBER}" ]; then
-        echo "\033[1;31mERROR: Cannot get account number\033[0m"
-        exit 1
-    fi
-
     local _AWS_CONFIG_FILE
     _AWS_CONFIG_FILE=~/.aws/config
     if [ ! -f "${_AWS_CONFIG_FILE}" ]; then
@@ -184,6 +156,49 @@ setup-aws-vault () {
                 ;;
             esac
         done
+    fi
+
+    echo "Adding '${NUBIS_ACCOUNT}' to aws-vault"
+    export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+    if ! aws-vault add --env "${NUBIS_ACCOUNT}"; then
+        echo "\033[1;31mERROR: ${NUBIS_ACCOUNT} could not be added to aws-vault\033[0m"
+        exit 1
+    fi
+    unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+
+    if [ "${USE_LOCAL_DOCKER:-0}" == 'true' ]; then
+        DOCKER_IMAGE="nubis-awscli"
+    else
+        NUBIS_DEPLOY_VERSION=$(curl -k -s -S \
+            "https://registry.hub.docker.com/v1/repositories/nubisproject/nubis-awscli/tags" \
+            | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.[]["name"] // empty' \
+            | sort --field-separator=. --numeric-sort --reverse \
+            | grep -m 1 "^v")
+        if [ -z "${NUBIS_DEPLOY_VERSION}" ]; then
+            echo -e "\033[1;31mERROR: Unable to find nubis-awscli version\033[0m"
+            break
+        fi
+        DOCKER_IMAGE="nubisproject/nubis-awscli:${NUBIS_DEPLOY_VERSION}"
+    fi
+
+    echo "Creating virtual mfa device"
+    AWS_COMMAND=( 'iam' 'create-virtual-mfa-device' '--virtual-mfa-device-name' "${LDAP_LOGIN}" '--outfile' "${LDAP_LOGIN}.png" '--bootstrap-method' 'QRCodePNG' )
+    local _VIRTUAL_MFA_ARN
+    _VIRTUAL_MFA_ARN=$(aws-vault exec -n "${NUBIS_ACCOUNT}" -- \
+        docker run \
+            --env-file "${DOCKER_ENV_FILE}" \
+            "${DOCKER_IMAGE}" ${AWS_COMMAND[@]} \
+        | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.VirtualMFADevice.SerialNumber // empty')
+    if [ -z "${_VIRTUAL_MFA_ARN}" ]; then
+        echo "\033[1;31mERROR: Virual MFA ARN already exists\033[0m"
+        exit 1
+    fi
+
+    local _ACCOUNT_NUMBER
+    _ACCOUNT_NUMBER=$(echo "${_VIRTUAL_MFA_ARN}" | cut -d ':' -f 5)
+    if [ -z "${_ACCOUNT_NUMBER}" ]; then
+        echo "\033[1;31mERROR: Cannot get account number\033[0m"
+        exit 1
     fi
 
     echo -e "\nAdding the ${NUBIS_ACCOUNT} account to ${_AWS_CONFIG_FILE}"
@@ -258,7 +273,8 @@ EOH
                 ask-for-input "Enter an auth code from your OTP/MFA app:" AUTH_CODE_ONE
                 ask-for-input "Enter a \033[7mdifferent\033[0m auth code from your OTP/MFA app:" AUTH_CODE_TWO
 
-                if ! aws-vault exec -n "${NUBIS_ACCOUNT}" -- aws iam enable-mfa-device --user-name "${LDAP_LOGIN}" --serial-number "${_VIRTUAL_MFA_ARN}" --authentication-code-1 "${AUTH_CODE_ONE}" --authentication-code-2 "${AUTH_CODE_TWO}"; then
+                AWS_COMMAND=( 'iam' 'enable-mfa-device' '--user-name' "${LDAP_LOGIN}" '--serial-number' "${_VIRTUAL_MFA_ARN}" '--authentication-code-1' "${AUTH_CODE_ONE}" '--authentication-code-2' "${AUTH_CODE_TWO}" )
+                if ! aws-vault exec -n "${NUBIS_ACCOUNT}" -- docker run --env-file "${DOCKER_ENV_FILE}" "${DOCKER_IMAGE}" ${AWS_COMMAND[@]}; then
                     echo -e "\033[1;31mERROR: Failed to enable MFA device.\033[0m"
                     exit 1
                 fi
@@ -285,26 +301,10 @@ EOH
         case $ANSWER in
             Yes )
                 echo "Cool. Listing S3 buckets..."
-                if [ "${USE_LOCAL_DOCKER:-0}" == 'true' ]; then
-                    DOCKER_IMAGE="nubis-deploy"
-                else
-                    NUBIS_DEPLOY_VERSION=$(curl -k -s -S \
-                        "https://registry.hub.docker.com/v1/repositories/nubisproject/nubis-deploy/tags" \
-                        | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.[]["name"] // empty' \
-                        | sort --field-separator=. --numeric-sort --reverse \
-                        | grep -m 1 "^v")
-                    if [ -z "${NUBIS_DEPLOY_VERSION}" ]; then
-                        echo -e "\033[1;31mERROR: Unable to find nubis-deploy version\033[0m"
-                        break
-                    fi
-                    DOCKER_IMAGE="nubisproject/nubis-deploy:${NUBIS_DEPLOY_VERSION}"
-                fi
                 aws-vault exec "${NUBIS_ACCOUNT}-ro" -- \
                         docker run \
-                            --interactive --tty \
                             --env-file "${DOCKER_ENV_FILE}" \
-                            --entrypoint=/bin/bash \
-                            "${DOCKER_IMAGE}" -c 'aws s3 ls'
+                            "${DOCKER_IMAGE}" s3 ls
                 break
             ;;
             No )
@@ -453,6 +453,27 @@ nubis-build() {
                 "${DOCKER_IMAGE}" "$@"
 }
 
+nubis-lint() {
+    if [ "${USE_LOCAL_DOCKER:-0}" == 'true' ]; then
+        DOCKER_IMAGE="nubis-travis"
+    else
+        NUBIS_BUILD_VERSION=$(curl -k -s -S \
+            "https://registry.hub.docker.com/v1/repositories/nubisproject/nubis-travis/tags" \
+            | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.[]["name"] // empty' \
+            | sort --field-separator=. --numeric-sort --reverse \
+            | grep -m 1 "^v")
+        if [ -z "${NUBIS_BUILD_VERSION}" ]; then
+            echo -e "\033[1;31mERROR: Unable to find nubis-travis version\033[0m"
+            exit 1
+        fi
+        DOCKER_IMAGE="nubisproject/nubis-travis:${NUBIS_BUILD_VERSION}"
+    fi
+
+    docker run \
+        --mount type=bind,source="$(pwd)",target=/nubis/files \
+        "${DOCKER_IMAGE}" "$@"
+}
+
 setup-account() {
     if [ -z "${NUBIS_ACCOUNT}" ]; then
         ask-for-input "Enter the AWS Account name:" NUBIS_ACCOUNT
@@ -531,6 +552,14 @@ while [ "$1" != "" ]; do
             run-checks
             setup-account
             nubis-deploy "$@"
+            shift "${#@}"
+            version-check
+            GOT_COMMAND=1
+        ;;
+        lint )
+            shift
+            run-checks
+            nubis-lint "$@"
             shift "${#@}"
             version-check
             GOT_COMMAND=1
