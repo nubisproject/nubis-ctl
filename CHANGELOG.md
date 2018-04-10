@@ -1,21 +1,29 @@
 # Change Log
 
-## [v0.2.0](https://github.com/nubisproject/nubis-ctl/tree/v0.2.0) (2018-02-27)
-[Full Changelog](https://github.com/nubisproject/nubis-ctl/compare/v0.2.0...v0.2.0)
+## [v0.3.0](https://github.com/nubisproject/nubis-ctl/tree/v0.3.0) (2018-04-10)
+[Full Changelog](https://github.com/nubisproject/nubis-ctl/compare/v0.2.0...v0.3.0)
+
+**Closed issues:**
+
+- Latest container version detection fails with v0.10 [\#22](https://github.com/nubisproject/nubis-ctl/issues/22)
 
 **Merged pull requests:**
 
-- Bump version number for release [\#18](https://github.com/nubisproject/nubis-ctl/pull/18) ([tinnightcap](https://github.com/tinnightcap))
+- Use correct cross-platform semver sorting [\#23](https://github.com/nubisproject/nubis-ctl/pull/23) ([gozer](https://github.com/gozer))
 
 ## [v0.2.0](https://github.com/nubisproject/nubis-ctl/tree/v0.2.0) (2018-02-27)
 [Full Changelog](https://github.com/nubisproject/nubis-ctl/compare/v0.1.0...v0.2.0)
 
 **Closed issues:**
 
+- Tag v0.2.0 release [\#19](https://github.com/nubisproject/nubis-ctl/issues/19)
 - Tag v0.2.0 release [\#15](https://github.com/nubisproject/nubis-ctl/issues/15)
 
 **Merged pull requests:**
 
+- Update CHANGELOG for v0.2.0 release \[skip ci\] [\#21](https://github.com/nubisproject/nubis-ctl/pull/21) ([nubis-automation](https://github.com/nubis-automation))
+- Update CHANGELOG for v0.2.0 release \[skip ci\] [\#20](https://github.com/nubisproject/nubis-ctl/pull/20) ([nubis-automation](https://github.com/nubis-automation))
+- Bump version number for release [\#18](https://github.com/nubisproject/nubis-ctl/pull/18) ([tinnightcap](https://github.com/tinnightcap))
 - Update CHANGELOG for v0.2.0 release \[skip ci\] [\#17](https://github.com/nubisproject/nubis-ctl/pull/17) ([nubis-automation](https://github.com/nubis-automation))
 - Update CHANGELOG for v0.2.0 release \[skip ci\] [\#16](https://github.com/nubisproject/nubis-ctl/pull/16) ([nubis-automation](https://github.com/nubis-automation))
 - Add lint checks plus lint fixups [\#14](https://github.com/nubisproject/nubis-ctl/pull/14) ([tinnightcap](https://github.com/tinnightcap))
