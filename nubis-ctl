@@ -173,7 +173,7 @@ setup-aws-vault () {
         NUBIS_DEPLOY_VERSION=$(curl -k -s -S \
             "https://registry.hub.docker.com/v1/repositories/nubisproject/nubis-awscli/tags" \
             | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.[]["name"] // empty' \
-            | sort --field-separator=. --numeric-sort --reverse \
+            | sort -t. -k 1.2,1nr -k 2,2nr -k 3,3nr \
             | grep -m 1 "^v")
         if [ -z "${NUBIS_DEPLOY_VERSION}" ]; then
             echo -e "\033[1;31mERROR: Unable to find nubis-awscli version\033[0m"
@@ -335,7 +335,7 @@ nubis-deploy() {
         NUBIS_DEPLOY_VERSION=$(curl -k -s -S \
             "https://registry.hub.docker.com/v1/repositories/nubisproject/nubis-deploy/tags" \
             | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.[]["name"] // empty' \
-            | sort --field-separator=. --numeric-sort --reverse \
+            | sort -t. -k 1.2,1nr -k 2,2nr -k 3,3nr \
             | grep -m 1 "^v")
         if [ -z "${NUBIS_DEPLOY_VERSION}" ]; then
             echo -e "\033[1;31mERROR: Unable to find nubis-deploy version\033[0m"
@@ -436,7 +436,7 @@ nubis-build() {
         NUBIS_BUILD_VERSION=$(curl -k -s -S \
             "https://registry.hub.docker.com/v1/repositories/nubisproject/nubis-builder/tags" \
             | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.[]["name"] // empty' \
-            | sort --field-separator=. --numeric-sort --reverse \
+            | sort -t. -k 1.2,1nr -k 2,2nr -k 3,3nr \
             | grep -m 1 "^v")
         if [ -z "${NUBIS_BUILD_VERSION}" ]; then
             echo -e "\033[1;31mERROR: Unable to find nubis-builder version\033[0m"
@@ -461,7 +461,7 @@ nubis-lint() {
         NUBIS_BUILD_VERSION=$(curl -k -s -S \
             "https://registry.hub.docker.com/v1/repositories/nubisproject/nubis-travis/tags" \
             | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.[]["name"] // empty' \
-            | sort --field-separator=. --numeric-sort --reverse \
+            | sort -t. -k 1.2,1nr -k 2,2nr -k 3,3nr \
             | grep -m 1 "^v")
         if [ -z "${NUBIS_BUILD_VERSION}" ]; then
             echo -e "\033[1;31mERROR: Unable to find nubis-travis version\033[0m"
