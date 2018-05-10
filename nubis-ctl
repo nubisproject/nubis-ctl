@@ -14,6 +14,7 @@ show-help () {
     echo -en "Commands:\n"
     echo -en "  build [cmd]    Run the nubis-buider docker container to build a new AMI\n"
     echo -en "  deploy [cmd]   Run the nubis-deploy docker container to operate on a deployment\n"
+    echo -en "  lint           Run the nubis-travis docker container to do syntax lints\n"
     echo -en "Options:\n"
     echo -en "  --account    -a      Name of the account to operate in\n"
     echo -en "  --bootstrap  -b      Use the bootsrtap user instead of the admin role\n"
