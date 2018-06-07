@@ -5,7 +5,7 @@
 set -o pipefail
 
 RELEASE_VERSION='v0.3.0'
-NUBIS_TOML2JSON_VERSION='v0.2.0'
+NUBIS_JSON2HCL_VERSION='v0.0.2'
 NUBIS_JQ_VERSION='v0.1.0'
 DOCKER_ENV_FILE=~/.docker_env
 
@@ -88,10 +88,10 @@ docker-env () {
 
 dependencies-version-setup () {
     if [ "${USE_LOCAL_DOCKER:-0}" == 'true' ]; then
-        TOML2JSON_DOCKER_IMAGE="nubis-toml2json"
+        JSON2HCL_DOCKER_IMAGE="nubis-json2hcl"
         JQ_DOCKER_IMAGE="nubis-jq"
     else
-        TOML2JSON_DOCKER_IMAGE="nubisproject/nubis-toml2json:${NUBIS_TOML2JSON_VERSION}"
+        JSON2HCL_DOCKER_IMAGE="nubisproject/nubis-json2hcl:${NUBIS_JSON2HCL_VERSION}"
         JQ_DOCKER_IMAGE="nubisproject/nubis-jq:${NUBIS_JQ_VERSION}"
     fi
 }
@@ -357,7 +357,7 @@ nubis-deploy() {
                         echo -e "\033[1;31mERROR: 'terraform.tfvars' file not found\033[0m"
                         exit 1
                     else
-                        ARENA=$(docker run -i "${TOML2JSON_DOCKER_IMAGE}" \
+                        ARENA=$(docker run -i "${JSON2HCL_DOCKER_IMAGE}" \
                             < ${TERRAFORM_PATH}/terraform.tfvars \
                             | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.arena // empty')
                         if [ -z "${ARENA}" ]; then
@@ -368,7 +368,7 @@ nubis-deploy() {
                         else
                             export ARENA
                         fi
-                        DEPLOYMENT_REGION=$(docker run -i "${TOML2JSON_DOCKER_IMAGE}" \
+                        DEPLOYMENT_REGION=$(docker run -i "${JSON2HCL_DOCKER_IMAGE}" \
                             < ${TERRAFORM_PATH}/terraform.tfvars \
                             | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.region // empty')
                         if [ -z "${DEPLOYMENT_REGION}" ]; then
