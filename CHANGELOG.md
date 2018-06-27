@@ -1,11 +1,19 @@
 # Change Log
 
-## [v0.3.0](https://github.com/nubisproject/nubis-ctl/tree/v0.3.0) (2018-04-10)
-[Full Changelog](https://github.com/nubisproject/nubis-ctl/compare/v0.3.0...v0.3.0)
+## [v0.3.1](https://github.com/nubisproject/nubis-ctl/tree/v0.3.1) (2018-06-27)
+[Full Changelog](https://github.com/nubisproject/nubis-ctl/compare/v0.3.0...v0.3.1)
+
+**Closed issues:**
+
+- add-account swallows png file [\#37](https://github.com/nubisproject/nubis-ctl/issues/37)
+- Switch out toml2json with json2hcl [\#35](https://github.com/nubisproject/nubis-ctl/issues/35)
+- Help command doesn't include the lint subcommand [\#32](https://github.com/nubisproject/nubis-ctl/issues/32)
 
 **Merged pull requests:**
 
-- Bump version number [\#27](https://github.com/nubisproject/nubis-ctl/pull/27) ([tinnightcap](https://github.com/tinnightcap))
+- Fix aws-vault png file issue [\#38](https://github.com/nubisproject/nubis-ctl/pull/38) ([tinnightcap](https://github.com/tinnightcap))
+- Switch out toml2json in favor of json2hcl [\#36](https://github.com/nubisproject/nubis-ctl/pull/36) ([limed](https://github.com/limed))
+- Add lint subcommand in usage command [\#33](https://github.com/nubisproject/nubis-ctl/pull/33) ([limed](https://github.com/limed))
 
 ## [v0.3.0](https://github.com/nubisproject/nubis-ctl/tree/v0.3.0) (2018-04-10)
 [Full Changelog](https://github.com/nubisproject/nubis-ctl/compare/v0.2.0...v0.3.0)
@@ -13,10 +21,14 @@
 **Closed issues:**
 
 - Latest container version detection fails with v0.10 [\#22](https://github.com/nubisproject/nubis-ctl/issues/22)
+- Tag v0.3.0 release [\#28](https://github.com/nubisproject/nubis-ctl/issues/28)
 - Tag v0.3.0 release [\#24](https://github.com/nubisproject/nubis-ctl/issues/24)
 
 **Merged pull requests:**
 
+- Update CHANGELOG for v0.3.0 release \[skip ci\] [\#30](https://github.com/nubisproject/nubis-ctl/pull/30) ([nubis-automation](https://github.com/nubis-automation))
+- Update CHANGELOG for v0.3.0 release \[skip ci\] [\#29](https://github.com/nubisproject/nubis-ctl/pull/29) ([nubis-automation](https://github.com/nubis-automation))
+- Bump version number [\#27](https://github.com/nubisproject/nubis-ctl/pull/27) ([tinnightcap](https://github.com/tinnightcap))
 - Update CHANGELOG for v0.3.0 release \[skip ci\] [\#26](https://github.com/nubisproject/nubis-ctl/pull/26) ([nubis-automation](https://github.com/nubis-automation))
 - Update CHANGELOG for v0.3.0 release \[skip ci\] [\#25](https://github.com/nubisproject/nubis-ctl/pull/25) ([nubis-automation](https://github.com/nubis-automation))
 - Use correct cross-platform semver sorting [\#23](https://github.com/nubisproject/nubis-ctl/pull/23) ([gozer](https://github.com/gozer))
