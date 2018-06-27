@@ -1,5 +1,12 @@
 # Change Log
 
+## [v0.3.2](https://github.com/nubisproject/nubis-ctl/tree/v0.3.2) (2018-06-27)
+[Full Changelog](https://github.com/nubisproject/nubis-ctl/compare/v0.3.1...v0.3.2)
+
+**Merged pull requests:**
+
+- Bump release number [\#42](https://github.com/nubisproject/nubis-ctl/pull/42) ([tinnightcap](https://github.com/tinnightcap))
+
 ## [v0.3.1](https://github.com/nubisproject/nubis-ctl/tree/v0.3.1) (2018-06-27)
 [Full Changelog](https://github.com/nubisproject/nubis-ctl/compare/v0.3.0...v0.3.1)
 
@@ -8,9 +15,12 @@
 - add-account swallows png file [\#37](https://github.com/nubisproject/nubis-ctl/issues/37)
 - Switch out toml2json with json2hcl [\#35](https://github.com/nubisproject/nubis-ctl/issues/35)
 - Help command doesn't include the lint subcommand [\#32](https://github.com/nubisproject/nubis-ctl/issues/32)
+- Tag v0.3.1 release [\#39](https://github.com/nubisproject/nubis-ctl/issues/39)
 
 **Merged pull requests:**
 
+- Update CHANGELOG for v0.3.1 release \[skip ci\] [\#41](https://github.com/nubisproject/nubis-ctl/pull/41) ([nubis-automation](https://github.com/nubis-automation))
+- Update CHANGELOG for v0.3.1 release \[skip ci\] [\#40](https://github.com/nubisproject/nubis-ctl/pull/40) ([nubis-automation](https://github.com/nubis-automation))
 - Fix aws-vault png file issue [\#38](https://github.com/nubisproject/nubis-ctl/pull/38) ([tinnightcap](https://github.com/tinnightcap))
 - Switch out toml2json in favor of json2hcl [\#36](https://github.com/nubisproject/nubis-ctl/pull/36) ([limed](https://github.com/limed))
 - Add lint subcommand in usage command [\#33](https://github.com/nubisproject/nubis-ctl/pull/33) ([limed](https://github.com/limed))
