@@ -5,7 +5,7 @@
 set -o pipefail
 
 RELEASE_VERSION='v0.3.0'
-NUBIS_TOML2JSON_VERSION='v0.2.0'
+NUBIS_JSON2HCL_VERSION='v0.0.2'
 NUBIS_JQ_VERSION='v0.1.0'
 DOCKER_ENV_FILE=~/.docker_env
 
@@ -14,6 +14,7 @@ show-help () {
     echo -en "Commands:\n"
     echo -en "  build [cmd]    Run the nubis-buider docker container to build a new AMI\n"
     echo -en "  deploy [cmd]   Run the nubis-deploy docker container to operate on a deployment\n"
+    echo -en "  lint           Run the nubis-travis docker container to do syntax lints\n"
     echo -en "Options:\n"
     echo -en "  --account    -a      Name of the account to operate in\n"
     echo -en "  --bootstrap  -b      Use the bootsrtap user instead of the admin role\n"
@@ -87,10 +88,10 @@ docker-env () {
 
 dependencies-version-setup () {
     if [ "${USE_LOCAL_DOCKER:-0}" == 'true' ]; then
-        TOML2JSON_DOCKER_IMAGE="nubis-toml2json"
+        JSON2HCL_DOCKER_IMAGE="nubis-json2hcl"
         JQ_DOCKER_IMAGE="nubis-jq"
     else
-        TOML2JSON_DOCKER_IMAGE="nubisproject/nubis-toml2json:${NUBIS_TOML2JSON_VERSION}"
+        JSON2HCL_DOCKER_IMAGE="nubisproject/nubis-json2hcl:${NUBIS_JSON2HCL_VERSION}"
         JQ_DOCKER_IMAGE="nubisproject/nubis-jq:${NUBIS_JQ_VERSION}"
     fi
 }
@@ -170,16 +171,16 @@ setup-aws-vault () {
     if [ "${USE_LOCAL_DOCKER:-0}" == 'true' ]; then
         DOCKER_IMAGE="nubis-awscli"
     else
-        NUBIS_DEPLOY_VERSION=$(curl -k -s -S \
+        NUBIS_AWSCLI_VERSION=$(curl -k -s -S \
             "https://registry.hub.docker.com/v1/repositories/nubisproject/nubis-awscli/tags" \
             | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.[]["name"] // empty' \
             | sort -t. -k 1.2,1nr -k 2,2nr -k 3,3nr \
             | grep -m 1 "^v")
-        if [ -z "${NUBIS_DEPLOY_VERSION}" ]; then
+        if [ -z "${NUBIS_AWSCLI_VERSION}" ]; then
             echo -e "\033[1;31mERROR: Unable to find nubis-awscli version\033[0m"
             return
         fi
-        DOCKER_IMAGE="nubisproject/nubis-awscli:${NUBIS_DEPLOY_VERSION}"
+        DOCKER_IMAGE="nubisproject/nubis-awscli:${NUBIS_AWSCLI_VERSION}"
     fi
 
     echo "Creating virtual mfa device"
@@ -188,6 +189,8 @@ setup-aws-vault () {
     _VIRTUAL_MFA_ARN=$(aws-vault exec -n "${NUBIS_ACCOUNT}" -- \
         docker run \
             --env-file "${DOCKER_ENV_FILE}" \
+            -w /home/temp \
+            --mount type=bind,source="$(pwd)",target=/home/temp \
             "${DOCKER_IMAGE}" "${AWS_COMMAND[@]}" \
         | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.VirtualMFADevice.SerialNumber // empty')
     if [ -z "${_VIRTUAL_MFA_ARN}" ]; then
@@ -356,7 +359,7 @@ nubis-deploy() {
                         echo -e "\033[1;31mERROR: 'terraform.tfvars' file not found\033[0m"
                         exit 1
                     else
-                        ARENA=$(docker run -i "${TOML2JSON_DOCKER_IMAGE}" \
+                        ARENA=$(docker run -i "${JSON2HCL_DOCKER_IMAGE}" \
                             < ${TERRAFORM_PATH}/terraform.tfvars \
                             | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.arena // empty')
                         if [ -z "${ARENA}" ]; then
@@ -367,7 +370,7 @@ nubis-deploy() {
                         else
                             export ARENA
                         fi
-                        DEPLOYMENT_REGION=$(docker run -i "${TOML2JSON_DOCKER_IMAGE}" \
+                        DEPLOYMENT_REGION=$(docker run -i "${JSON2HCL_DOCKER_IMAGE}" \
                             < ${TERRAFORM_PATH}/terraform.tfvars \
                             | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.region // empty')
                         if [ -z "${DEPLOYMENT_REGION}" ]; then
