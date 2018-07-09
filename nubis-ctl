@@ -4,7 +4,7 @@
 # Make sure we capture failures from pipe commands
 set -o pipefail
 
-RELEASE_VERSION='v0.3.2'
+RELEASE_VERSION='v0.3.3'
 NUBIS_JSON2HCL_VERSION='v0.0.2'
 NUBIS_JQ_VERSION='v0.1.0'
 DOCKER_ENV_FILE=~/.docker_env
@@ -25,17 +25,13 @@ show-help () {
 }
 
 dependencies-check () {
-    if ! hash aws-vault 2>/dev/null; then
+    if [ "${SKIP_AWS_VAULT:-0}" == '0' ] && ! hash aws-vault 2>/dev/null; then
         echo -e "\033[1;31mERROR: aws-vault needs to to be installed and on your path.\033[0m"
         echo -e "\033[0;32mSee https://github.com/99designs/aws-vault\033[0m"
     fi
     if ! hash docker 2>/dev/null; then
         echo -e "\033[1;31mERROR: docker needs to to be installed and on your path.\033[0m"
         echo -e "\033[0;32mSee https://store.docker.com/search?offering=community&type=edition\033[0m"
-    fi
-    if ! hash sshuttle 2>/dev/null; then
-        echo -e "\033[0;32mWARNING: sshuttle not found. Some functionality will be disabled.\033[0m"
-        echo -e "\033[0;32mYou should be able to install it with your package manager\033[0m"
     fi
     if ! hash curl 2>/dev/null; then
         echo -e "\033[1;31mERROR: curl needs to to be installed and on your path.\033[0m"
@@ -56,7 +52,7 @@ version-check () {
 }
 
 docker-env () {
-    if [ ! -f "${DOCKER_ENV_FILE}" ]; then
+    if [ "${SKIP_AWS_VAULT:-0}" == '0' ] && [ ! -f "${DOCKER_ENV_FILE}" ]; then
         echo -e "Did not find '${DOCKER_ENV_FILE}' Which should contain:\n"
         echo -e "\033[0;32mAWS_ACCESS_KEY_ID\033[0m"
         echo -e "\033[0;32mAWS_SECRET_ACCESS_KEY\033[0m"
@@ -347,89 +343,58 @@ nubis-deploy() {
         DOCKER_IMAGE="nubisproject/nubis-deploy:${NUBIS_DEPLOY_VERSION}"
     fi
 
-    if [ "${1}" == 'apply' ] && hash sshuttle 2>/dev/null; then
-        echo "Would you like me to set up sshuttle?"
-        echo "This is necessary if you are using Terraform to insert values into Consul."
-        PS3="Enter a number: "
-        select ANSWER in 'Yes' 'No' 'Quit'; do
-            case $ANSWER in
-                Yes )
-                    TERRAFORM_PATH='nubis/terraform'
-                    if [ ! -f "${TERRAFORM_PATH}/terraform.tfvars" ]; then
-                        echo -e "\033[1;31mERROR: 'terraform.tfvars' file not found\033[0m"
-                        exit 1
-                    else
-                        ARENA=$(docker run -i "${JSON2HCL_DOCKER_IMAGE}" \
-                            < ${TERRAFORM_PATH}/terraform.tfvars \
-                            | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.arena // empty')
-                        if [ -z "${ARENA}" ]; then
-                            echo -e "\033[0;32mWARNING: 'arena' not set in ${TERRAFORM_PATH}/terraform.tfvars\033[0m"
-                            echo -e "\033[0;32mWARNING: Defaulting 'arena' to 'core'\033[0m"
-                            echo -e "\033[0;32mWARNING: 'arena' will be required in a future release\033[0m"
-                            ARENA='core'; export ARENA
-                        else
-                            export ARENA
-                        fi
-                        DEPLOYMENT_REGION=$(docker run -i "${JSON2HCL_DOCKER_IMAGE}" \
-                            < ${TERRAFORM_PATH}/terraform.tfvars \
-                            | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.region // empty')
-                        if [ -z "${DEPLOYMENT_REGION}" ]; then
-                            echo -e "\033[1;31mERROR: 'region' not set ${TERRAFORM_PATH}/terraform.tfvars\033[0m"
-                            exit 1
-                        else
-                            export DEPLOYMENT_REGION
-                        fi
-                    fi
-                    NUBIS_ARENA_IPS=$(curl -s \
-                        "http://state.nubis.${NUBIS_ACCOUNT}.nubis.allizom.org/aws/${DEPLOYMENT_REGION}/${ARENA}.tfstate" \
-                        | docker run -i "${JQ_DOCKER_IMAGE}" \
-                        jq --raw-output ' .modules[] | select(.path == ["root"]) | .outputs.private_network_cidr //empty')
-                    if [ -z "${NUBIS_ARENA_IPS}" ]; then
-                        echo "ACCOUNT IPs not found. Skipping sshuttle"
-                        break
-                    else
-                         sshuttle --daemon -v --dns -r "${USER}@jumphost.${ARENA}.${DEPLOYMENT_REGION}.${NUBIS_ACCOUNT}.nubis.allizom.org" "${NUBIS_ARENA_IPS}"
-                        break
-                    fi
-                ;;
-                No )
-                    break
-                ;;
-                Quit )
-                    echo "Okay. Se ya."
-                    exit 0
-                ;;
-                * )
-                    echo "Please enter a number. For example: enter '1' for the first option in the list."
-                ;;
-            esac
-        done
-    elif [ "${1}" == 'apply' ]; then
-        echo -e "\033[0;32mWARNING: sshuttle not found. Disabling sshuttle functionality.\033[0m"
-        echo -e "\033[0;32msshuttle is necessary if you are using Terraform to insert values into Consul.\033[0m"
+    if [ "${#@}" != 0 ] && [ "${3}" != 'account' ]; then
+        TERRAFORM_PATH='nubis/terraform'
+        if [ ! -f "${TERRAFORM_PATH}/terraform.tfvars" ]; then
+            echo -e "\033[1;31mERROR: 'terraform.tfvars' file not found\033[0m"
+            exit 1
+        else
+            ARENA=$(docker run -i "${JSON2HCL_DOCKER_IMAGE}" --reverse \
+                < ${TERRAFORM_PATH}/terraform.tfvars \
+                | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.arena // empty')
+            if [ -z "${ARENA}" ]; then
+                echo -e "\033[0;32mWARNING: 'arena' not set in ${TERRAFORM_PATH}/terraform.tfvars\033[0m"
+                echo -e "\033[0;32mWARNING: Defaulting 'arena' to 'core'\033[0m"
+                echo -e "\033[0;32mWARNING: 'arena' will be required in a future release\033[0m"
+                ARENA='core'
+            fi
+            DEPLOYMENT_REGION=$(docker run -i "${JSON2HCL_DOCKER_IMAGE}" --reverse \
+                < ${TERRAFORM_PATH}/terraform.tfvars \
+                | docker run -i "${JQ_DOCKER_IMAGE}" jq --raw-output '.region // empty')
+            if [ -z "${DEPLOYMENT_REGION}" ]; then
+                echo -e "\033[1;31mERROR: 'region' not set ${TERRAFORM_PATH}/terraform.tfvars\033[0m"
+                exit 1
+            fi
+            echo -e "\033[0;32mINFO: If you need to access Consul you need to set up an SSH tunnel first.\033[0m"
+            echo -e "\033[0;32mINFO: ssh -L 8500:localhost:8500 -N -o GatewayPorts=yes ${USER}@jumphost.${ARENA}.${DEPLOYMENT_REGION}.${NUBIS_ACCOUNT}.nubis.allizom.org\033[0m"
+        fi
     fi
 
+    declare -a DOCKER_EXEC
+    DOCKER_EXEC+=( 'docker' 'run' )
+    if [ "${1}" == 'account' ]; then
+        DOCKER_EXEC+=( '-u' "$(id -u):$(id -g)" )
+    else
+        DOCKER_EXEC+=( '-u' '0:0' )
+    fi
     if [ "${USE_BOOTSTRAP_USER:-0}" != '0' ]; then
         declare -a AWS_VAULT_EXEC=( 'aws-vault' 'exec' '-n' "${NUBIS_ACCOUNT}-bootstrap" '--' )
+        DOCKER_EXEC+=( '--interactive' '--tty' )
+        DOCKER_EXEC+=( '--env-file' "${DOCKER_ENV_FILE}" )
+    elif [ "${SKIP_AWS_VAULT:-0}" != '0' ]; then
+        declare -a AWS_VAULT_EXEC
     else
         declare -a AWS_VAULT_EXEC=( 'aws-vault' 'exec' '--assume-role-ttl=60m' "${NUBIS_ACCOUNT}-admin" '--' )
+        DOCKER_EXEC+=( '--interactive' '--tty' )
+        DOCKER_EXEC+=( '--env-file' "${DOCKER_ENV_FILE}" )
     fi
+    DOCKER_EXEC+=(  '--net' "host")
+    DOCKER_EXEC+=(  '--mount' "type=bind,source=$(pwd),target=/nubis/data")
+    DOCKER_EXEC+=(  '--mount' 'source=nubis-deploy,target=/nubis/work')
+    DOCKER_EXEC+=( "${DOCKER_IMAGE}" "$@" )
 
-    if [ "${1}" == 'account' ]; then
-        DOCKER_USER="$(id -u):$(id -g)"
-    else
-        DOCKER_USER='0:0'
-    fi
+    "${AWS_VAULT_EXEC[@]}" "${DOCKER_EXEC[@]}"
 
-    "${AWS_VAULT_EXEC[@]}" \
-            docker run \
-                -u"${DOCKER_USER}" \
-                --interactive --tty \
-                --env-file "${DOCKER_ENV_FILE}" \
-                --env NUBIS_ACCOUNT="${NUBIS_ACCOUNT}" \
-                --mount type=bind,source="$(pwd)",target=/nubis/data \
-                --mount source=nubis-deploy,target=/nubis/work \
-                "${DOCKER_IMAGE}" "$@"
 }
 
 nubis-build() {
@@ -448,13 +413,20 @@ nubis-build() {
         DOCKER_IMAGE="nubisproject/nubis-builder:${NUBIS_BUILD_VERSION}"
     fi
 
-    aws-vault exec "${NUBIS_ACCOUNT}-admin" -- \
-            docker run \
-                -u "$(id -u):$(id -g)" \
-                --interactive --tty \
-                --env-file "${DOCKER_ENV_FILE}" \
-                --mount type=bind,source="$(pwd)",target=/nubis/data \
-                "${DOCKER_IMAGE}" "$@"
+    declare -a DOCKER_EXEC
+    DOCKER_EXEC+=( 'docker' 'run' )
+    DOCKER_EXEC+=( '-u' "$(id -u):$(id -g)" )
+    if [ "${SKIP_AWS_VAULT:-0}" != '0' ]; then
+        declare -a AWS_VAULT_EXEC
+    else
+        declare -a AWS_VAULT_EXEC=( 'aws-vault' 'exec' '--assume-role-ttl=60m' "${NUBIS_ACCOUNT}-admin" '--' )
+        DOCKER_EXEC+=( '--interactive' '--tty' )
+        DOCKER_EXEC+=( '--env-file' "${DOCKER_ENV_FILE}" )
+    fi
+    DOCKER_EXEC+=(  '--mount' "type=bind,source=$(pwd),target=/nubis/data")
+    DOCKER_EXEC+=( "${DOCKER_IMAGE}" "$@" )
+
+    "${AWS_VAULT_EXEC[@]}" "${DOCKER_EXEC[@]}"
 }
 
 nubis-lint() {
@@ -525,7 +497,7 @@ while [ "$1" != "" ]; do
         -l | --local )
             USE_LOCAL_DOCKER='true'
         ;;
-        --debug | --setx )
+        -x | --debug | --setx )
             set -x
         ;;
         -a | --account | --account-name )
@@ -534,6 +506,9 @@ while [ "$1" != "" ]; do
         ;;
         -b | --bootstrap )
             USE_BOOTSTRAP_USER='true'
+        ;;
+        --skip-aws-vault )
+            SKIP_AWS_VAULT='true'
         ;;
         add-account )
             run-checks
@@ -555,7 +530,11 @@ while [ "$1" != "" ]; do
             shift
             run-checks
             setup-account
-            nubis-deploy "$@"
+            if [ "${#@}" == 0 ]; then
+                nubis-deploy
+            else
+                nubis-deploy --account "${NUBIS_ACCOUNT}" "$@"
+            fi
             shift "${#@}"
             version-check
             GOT_COMMAND=1
