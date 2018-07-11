@@ -1,10 +1,29 @@
 # Change Log
 
-## [v0.3.3](https://github.com/nubisproject/nubis-ctl/tree/v0.3.3) (2018-07-09)
-[Full Changelog](https://github.com/nubisproject/nubis-ctl/compare/v0.3.2...v0.3.3)
+## [v0.3.4](https://github.com/nubisproject/nubis-ctl/tree/v0.3.4) (2018-07-11)
+[Full Changelog](https://github.com/nubisproject/nubis-ctl/compare/v0.3.3...v0.3.4)
+
+**Closed issues:**
+
+- Expose env file for Jenkins to use Proxies [\#52](https://github.com/nubisproject/nubis-ctl/issues/52)
+- Expose exit status to top of stack [\#50](https://github.com/nubisproject/nubis-ctl/issues/50)
 
 **Merged pull requests:**
 
+- Bump version for release [\#53](https://github.com/nubisproject/nubis-ctl/pull/53) ([tinnightcap](https://github.com/tinnightcap))
+- Expose $rv to top level [\#51](https://github.com/nubisproject/nubis-ctl/pull/51) ([tinnightcap](https://github.com/tinnightcap))
+
+## [v0.3.3](https://github.com/nubisproject/nubis-ctl/tree/v0.3.3) (2018-07-09)
+[Full Changelog](https://github.com/nubisproject/nubis-ctl/compare/v0.3.2...v0.3.3)
+
+**Closed issues:**
+
+- Tag v0.3.3 release [\#47](https://github.com/nubisproject/nubis-ctl/issues/47)
+
+**Merged pull requests:**
+
+- Update CHANGELOG for v0.3.3 release \[skip ci\] [\#49](https://github.com/nubisproject/nubis-ctl/pull/49) ([nubis-automation](https://github.com/nubis-automation))
+- Update CHANGELOG for v0.3.3 release \[skip ci\] [\#48](https://github.com/nubisproject/nubis-ctl/pull/48) ([nubis-automation](https://github.com/nubis-automation))
 - Adjustments for pipeline integration [\#46](https://github.com/nubisproject/nubis-ctl/pull/46) ([tinnightcap](https://github.com/tinnightcap))
 
 ## [v0.3.2](https://github.com/nubisproject/nubis-ctl/tree/v0.3.2) (2018-06-27)
