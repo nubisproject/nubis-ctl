@@ -1,5 +1,16 @@
 # Change Log
 
+## [v0.3.5](https://github.com/nubisproject/nubis-ctl/tree/v0.3.5) (2018-07-11)
+[Full Changelog](https://github.com/nubisproject/nubis-ctl/compare/v0.3.4...v0.3.5)
+
+**Closed issues:**
+
+- Make docker env file optional [\#57](https://github.com/nubisproject/nubis-ctl/issues/57)
+
+**Merged pull requests:**
+
+- Make docker env file optional [\#58](https://github.com/nubisproject/nubis-ctl/pull/58) ([tinnightcap](https://github.com/tinnightcap))
+
 ## [v0.3.4](https://github.com/nubisproject/nubis-ctl/tree/v0.3.4) (2018-07-11)
 [Full Changelog](https://github.com/nubisproject/nubis-ctl/compare/v0.3.3...v0.3.4)
 
@@ -7,9 +18,12 @@
 
 - Expose env file for Jenkins to use Proxies [\#52](https://github.com/nubisproject/nubis-ctl/issues/52)
 - Expose exit status to top of stack [\#50](https://github.com/nubisproject/nubis-ctl/issues/50)
+- Tag v0.3.4 release [\#54](https://github.com/nubisproject/nubis-ctl/issues/54)
 
 **Merged pull requests:**
 
+- Update CHANGELOG for v0.3.4 release \[skip ci\] [\#56](https://github.com/nubisproject/nubis-ctl/pull/56) ([nubis-automation](https://github.com/nubis-automation))
+- Update CHANGELOG for v0.3.4 release \[skip ci\] [\#55](https://github.com/nubisproject/nubis-ctl/pull/55) ([nubis-automation](https://github.com/nubis-automation))
 - Bump version for release [\#53](https://github.com/nubisproject/nubis-ctl/pull/53) ([tinnightcap](https://github.com/tinnightcap))
 - Expose $rv to top level [\#51](https://github.com/nubisproject/nubis-ctl/pull/51) ([tinnightcap](https://github.com/tinnightcap))
 
