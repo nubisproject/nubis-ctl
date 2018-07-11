@@ -28,14 +28,17 @@ dependencies-check () {
     if [ "${SKIP_AWS_VAULT:-0}" == '0' ] && ! hash aws-vault 2>/dev/null; then
         echo -e "\033[1;31mERROR: aws-vault needs to to be installed and on your path.\033[0m"
         echo -e "\033[0;32mSee https://github.com/99designs/aws-vault\033[0m"
+        exit 1
     fi
     if ! hash docker 2>/dev/null; then
         echo -e "\033[1;31mERROR: docker needs to to be installed and on your path.\033[0m"
         echo -e "\033[0;32mSee https://store.docker.com/search?offering=community&type=edition\033[0m"
+        exit 1
     fi
     if ! hash curl 2>/dev/null; then
         echo -e "\033[1;31mERROR: curl needs to to be installed and on your path.\033[0m"
         echo -e "\033[0;32mYou should be able to install it with your package manager\033[0m"
+        exit 1
     fi
 }
 
@@ -380,21 +383,22 @@ nubis-deploy() {
     if [ "${USE_BOOTSTRAP_USER:-0}" != '0' ]; then
         declare -a AWS_VAULT_EXEC=( 'aws-vault' 'exec' '-n' "${NUBIS_ACCOUNT}-bootstrap" '--' )
         DOCKER_EXEC+=( '--interactive' '--tty' )
-        DOCKER_EXEC+=( '--env-file' "${DOCKER_ENV_FILE}" )
     elif [ "${SKIP_AWS_VAULT:-0}" != '0' ]; then
         declare -a AWS_VAULT_EXEC
     else
         declare -a AWS_VAULT_EXEC=( 'aws-vault' 'exec' '--assume-role-ttl=60m' "${NUBIS_ACCOUNT}-admin" '--' )
         DOCKER_EXEC+=( '--interactive' '--tty' )
-        DOCKER_EXEC+=( '--env-file' "${DOCKER_ENV_FILE}" )
     fi
+    DOCKER_EXEC+=( '--env-file' "${DOCKER_ENV_FILE}" )
     DOCKER_EXEC+=(  '--net' "host")
     DOCKER_EXEC+=(  '--mount' "type=bind,source=$(pwd),target=/nubis/data")
     DOCKER_EXEC+=(  '--mount' 'source=nubis-deploy,target=/nubis/work')
     DOCKER_EXEC+=( "${DOCKER_IMAGE}" "$@" )
 
-    "${AWS_VAULT_EXEC[@]}" "${DOCKER_EXEC[@]}"
-
+    if ! "${AWS_VAULT_EXEC[@]}" "${DOCKER_EXEC[@]}" ; then
+        echo -e "\033[1;31mERROR: Deploy failed.\033[0m"
+        exit 1
+    fi
 }
 
 nubis-build() {
@@ -421,12 +425,15 @@ nubis-build() {
     else
         declare -a AWS_VAULT_EXEC=( 'aws-vault' 'exec' '--assume-role-ttl=60m' "${NUBIS_ACCOUNT}-admin" '--' )
         DOCKER_EXEC+=( '--interactive' '--tty' )
-        DOCKER_EXEC+=( '--env-file' "${DOCKER_ENV_FILE}" )
     fi
+    DOCKER_EXEC+=( '--env-file' "${DOCKER_ENV_FILE}" )
     DOCKER_EXEC+=(  '--mount' "type=bind,source=$(pwd),target=/nubis/data")
     DOCKER_EXEC+=( "${DOCKER_IMAGE}" "$@" )
 
-    "${AWS_VAULT_EXEC[@]}" "${DOCKER_EXEC[@]}"
+    if ! "${AWS_VAULT_EXEC[@]}" "${DOCKER_EXEC[@]}" ; then
+        echo -e "\033[1;31mERROR: Build failed.\033[0m"
+        exit 1
+    fi
 }
 
 nubis-lint() {
@@ -445,9 +452,12 @@ nubis-lint() {
         DOCKER_IMAGE="nubisproject/nubis-travis:${NUBIS_BUILD_VERSION}"
     fi
 
-    docker run \
-        --mount type=bind,source="$(pwd)",target=/nubis/files \
-        "${DOCKER_IMAGE}" "$@"
+    if ! docker run \
+            --mount type=bind,source="$(pwd)",target=/nubis/files \
+            "${DOCKER_IMAGE}" "$@" ; then
+        echo -e "\033[1;31mERROR: Linting failed.\033[0m"
+        exit 1
+    fi
 }
 
 setup-account() {
