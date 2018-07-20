@@ -425,7 +425,7 @@ nubis-build() {
     if [ "${SKIP_AWS_VAULT:-0}" != '0' ]; then
         declare -a AWS_VAULT_EXEC
     else
-        declare -a AWS_VAULT_EXEC=( 'aws-vault' 'exec' '--assume-role-ttl=60m' "${NUBIS_ACCOUNT}-admin" '--' )
+        declare -a AWS_VAULT_EXEC=( 'aws-vault' 'exec' '--assume-role-ttl=60m' '--session-ttl=4h' "${NUBIS_ACCOUNT}-admin" '--' )
         DOCKER_EXEC+=( '--interactive' '--tty' )
     fi
     if [ -f "${DOCKER_ENV_FILE}" ]; then
@@ -531,7 +531,7 @@ while [ "$1" != "" ]; do
             version-check
             GOT_COMMAND=1
         ;;
-        build )
+        builder | build )
             shift
             run-checks
             setup-account
