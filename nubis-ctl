@@ -4,7 +4,7 @@
 # Make sure we capture failures from pipe commands
 set -o pipefail
 
-RELEASE_VERSION='v0.3.5'
+RELEASE_VERSION='v0.4.0'
 NUBIS_JSON2HCL_VERSION='v0.0.2'
 NUBIS_JQ_VERSION='v0.1.0'
 DOCKER_ENV_FILE=~/.docker_env
