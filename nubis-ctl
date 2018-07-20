@@ -4,7 +4,7 @@
 # Make sure we capture failures from pipe commands
 set -o pipefail
 
-RELEASE_VERSION='v0.3.5'
+RELEASE_VERSION='v0.4.0'
 NUBIS_JSON2HCL_VERSION='v0.0.2'
 NUBIS_JQ_VERSION='v0.1.0'
 DOCKER_ENV_FILE=~/.docker_env
@@ -425,7 +425,7 @@ nubis-build() {
     if [ "${SKIP_AWS_VAULT:-0}" != '0' ]; then
         declare -a AWS_VAULT_EXEC
     else
-        declare -a AWS_VAULT_EXEC=( 'aws-vault' 'exec' '--assume-role-ttl=60m' "${NUBIS_ACCOUNT}-admin" '--' )
+        declare -a AWS_VAULT_EXEC=( 'aws-vault' 'exec' '--assume-role-ttl=60m' '--session-ttl=4h' "${NUBIS_ACCOUNT}-admin" '--' )
         DOCKER_EXEC+=( '--interactive' '--tty' )
     fi
     if [ -f "${DOCKER_ENV_FILE}" ]; then
@@ -531,7 +531,7 @@ while [ "$1" != "" ]; do
             version-check
             GOT_COMMAND=1
         ;;
-        build )
+        builder | build )
             shift
             run-checks
             setup-account

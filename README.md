@@ -59,7 +59,7 @@ All of the commands have help:
 
 nubis-ctl --help
 
-nubis-ctl build --help
+nubis-ctl builder --help
 
 nubis-ctl deploy --help
 
@@ -75,7 +75,7 @@ level of your project run the following command:
 
 ```bash
 
-nubis-ctl --account nubis-training build
+nubis-ctl --account nubis-training builder build
 
 ```
 
@@ -87,7 +87,7 @@ to continue.
 
 ```bash
 
-nubis-ctl --account nubis-training build debug
+nubis-ctl --account nubis-training builder debug
 
 ```
 
@@ -136,11 +136,11 @@ complex example and break it down into its component parts:
 
 ```bash
 
-nubis-ctl --account nubis-training build --debug --copy-regions "us-east-1,us-west-2" build --instance_type c3.large --packer-options debug
+nubis-ctl --account nubis-training builder --debug --copy-regions "us-east-1,us-west-2" build --instance_type c3.large --packer-options debug
 
 ```
 
-The first part of the command `nubis-ctl --account nubis-training build` invokes
+The first part of the command `nubis-ctl --account nubis-training builder` invokes
 nubis-ctl, passes in the account name to work in and invokes the nubis-builder
 docker container.
 
@@ -148,10 +148,7 @@ The next part of the command contains the options and a command for the
 nubis-builder container. Namely
 `--debug --copy-regions "us-east-1,us-west-2" build` which tells the container
 to run in debug mode for lots of verbose output. Then tells it that I want
-copies of my AMI in two regions and finally invokes the build command. Normally
-it is not required to call build explicitly as it is set in the Dockerfile
-(`CMD [ "build" ]`). However as we are overriding this default command it
-becomes necessary to include it here.
+copies of my AMI in two regions and finally invokes the build command.
 
 The final portion of the command passes options to the nubis-builder code
 itself. `--instance_type c3.large --packer-options debug` In this example we are
@@ -169,9 +166,9 @@ I'll quickly illustrate getting help at each level to illustrate the point:
 
 nubis-ctl --account nubis-training help
 
-nubis-ctl --account nubis-training build help
+nubis-ctl --account nubis-training builder help
 
-nubis-ctl --account nubis-training build build help
+nubis-ctl --account nubis-training builder build help
 
 ```
 
