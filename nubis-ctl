@@ -397,7 +397,7 @@ nubis-deploy() {
     DOCKER_EXEC+=(  '--net' "host")
     DOCKER_EXEC+=(  '--mount' "type=bind,source=$(pwd),target=/nubis/data")
     DOCKER_EXEC+=(  '--mount' 'source=nubis-deploy,target=/nubis/work')
-    if [ -z $NUBIS_DOMAIN ]; then
+    if [ -z "${NUBIS_DOMAIN}" ]; then
         DOCKER_EXEC+=( "${DOCKER_IMAGE}" "$@" )
     else
         DOCKER_EXEC+=( "${DOCKER_IMAGE}" '--domain' "${NUBIS_DOMAIN}" "$@" )
