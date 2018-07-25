@@ -19,6 +19,7 @@ show-help () {
     echo -en "Options:\n"
     echo -en "  --account    -a      Name of the account to operate in\n"
     echo -en "  --bootstrap  -b      Use the bootsrtap user instead of the admin role\n"
+    echo -en "  --domain     -d      Set domain for looking up state (Default: nubis.allizom.org)\n"
     echo -en "  --local      -l      Use locally built docker image for this operation\n"
     echo -en "  --help       -h      Print this help information and exit\n"
     echo -en "  --setx       -x      Turn on bash setx, should be set before other arguments\n"
@@ -370,7 +371,7 @@ nubis-deploy() {
                 exit 1
             fi
             echo -e "\033[0;32mINFO: If you need to access Consul you need to set up an SSH tunnel first.\033[0m"
-            echo -e "\033[0;32mINFO: ssh -L 8500:localhost:8500 -N -o GatewayPorts=yes ${USER}@jumphost.${ARENA}.${DEPLOYMENT_REGION}.${NUBIS_ACCOUNT}.nubis.allizom.org\033[0m"
+            echo -e "\033[0;32mINFO: ssh -L 8500:localhost:8500 -N -o GatewayPorts=yes ${USER}@jumphost.${ARENA}.${DEPLOYMENT_REGION}.${NUBIS_ACCOUNT}.${NUBIS_DOMAIN:-'nubis.allizom.org'}\033[0m"
         fi
     fi
 
@@ -396,7 +397,12 @@ nubis-deploy() {
     DOCKER_EXEC+=(  '--net' "host")
     DOCKER_EXEC+=(  '--mount' "type=bind,source=$(pwd),target=/nubis/data")
     DOCKER_EXEC+=(  '--mount' 'source=nubis-deploy,target=/nubis/work')
-    DOCKER_EXEC+=( "${DOCKER_IMAGE}" "$@" )
+    if [ -z $NUBIS_DOMAIN ]; then
+        DOCKER_EXEC+=( "${DOCKER_IMAGE}" "$@" )
+    else
+        DOCKER_EXEC+=( "${DOCKER_IMAGE}" '--domain' "${NUBIS_DOMAIN}" "$@" )
+    fi
+
 
     if ! "${AWS_VAULT_EXEC[@]}" "${DOCKER_EXEC[@]}" ; then
         echo -e "\033[1;31mERROR: Deploy failed.\033[0m"
@@ -521,6 +527,10 @@ while [ "$1" != "" ]; do
         ;;
         -b | --bootstrap )
             USE_BOOTSTRAP_USER='true'
+        ;;
+        -d | --domain )
+            NUBIS_DOMAIN="${2}"
+            shift
         ;;
         --skip-aws-vault )
             SKIP_AWS_VAULT='true'
